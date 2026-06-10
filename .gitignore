@@ -1,0 +1,132 @@
+# ==============================================================================
+# PlateVision — .gitignore
+# Fichiers et dossiers exclus du versionnement Git
+# ==============================================================================
+
+# --- Environnements virtuels Python ---
+venv/
+.venv/
+env/
+.env
+ENV/
+env.bak/
+venv.bak/
+
+# Variables d'environnement (garder uniquement .env.example)
+# NE PAS versionner .env (contient des chemins locaux et secrets)
+.env
+!.env.example
+
+# --- Données lourdes (à télécharger séparément, voir data/README_data.md) ---
+data/raw/
+data/processed/*.jpg
+data/processed/*.jpeg
+data/processed/*.png
+data/processed/*.mp4
+data/processed/*.avi
+data/annotations/*.xml
+
+# --- Poids et checkpoints de modèles entraînés ---
+models/weights/
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.joblib
+*.h5
+*.hdf5
+
+# Embeddings sauvegardés (peuvent être régénérés)
+*.npy
+*.npz
+
+# --- Cache Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# --- Logs et runs d'entraînement ---
+# YOLO / Ultralytics
+runs/
+# MLflow
+mlruns/
+# Weights & Biases
+wandb/
+# TensorBoard
+logs/
+*.log
+lightning_logs/
+
+# --- Notebooks Jupyter avec outputs ---
+# IMPORTANT : Pour garder les notebooks propres avant commit :
+#   jupyter nbconvert --clear-output --inplace notebooks/*.ipynb
+# Ou utiliser : nbstripout (pip install nbstripout && nbstripout --install)
+# Les fichiers .ipynb sont versionnés SANS leurs cellules de sortie
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# --- IDE et éditeurs ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.spyderproject.cfg
+.spyproject/
+.ropeproject/
+
+# --- Fichiers système ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# --- Rapports générés automatiquement ---
+reports/DSD/*.pdf
+reports/gestion_projet/*.pdf
+reports/rapport_technique/*.pdf
+
+# --- Fichiers temporaires ---
+*.tmp
+*.temp
+*.bak
+*.swp
+
+# --- Coverage et tests ---
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.cache/
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+
+# --- Documentation générée ---
+docs/_build/
+site/

@@ -1,0 +1,18 @@
+# Configuration YOLOv8 — PlateVision
+# Dataset de détection de plaques d'immatriculation camerounaises
+
+# Chemins des données (relatifs à la racine du projet)
+path: data/raw
+train: images/train
+val: images/val
+test: images/test
+
+# Nombre de classes
+nc: 1
+
+# Noms des classes
+names:
+  0: plaque_immatriculation
+
+# Paramètres d'entraînement recommandés
+# Lancer avec : yolo train model=yolov8n.pt data=models/configs/yolov8_platevision.yaml epochs=100

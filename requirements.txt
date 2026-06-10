@@ -1,0 +1,55 @@
+# ==============================================================================
+# PlateVision — Dépendances Python
+# Compatible Python 3.10+
+# Installer avec : pip install -r requirements.txt
+# ==============================================================================
+
+# --- Détection d'objets (YOLO v8) ---
+# Utilisé dans module_a/yolo_ocr_pipeline.py pour la détection des plaques
+ultralytics==8.3.40
+
+# --- OCR (Reconnaissance Optique de Caractères) ---
+# Utilisé dans module_a/yolo_ocr_pipeline.py pour lire les caractères des plaques
+easyocr==1.7.2
+
+# --- Vision par ordinateur ---
+# Traitement d'images, lecture vidéo, transformations géométriques
+opencv-python==4.10.0.84
+Pillow==10.4.0
+# Augmentation de données avancée (rotations, flou, luminosité, distorsion)
+albumentations==1.4.18
+
+# --- Machine Learning classique ---
+# Naïves Bayes, K-Means, PCA, métriques de classification, normalisation
+scikit-learn==1.5.2
+
+# --- Deep Learning ---
+# Extraction d'embeddings CNN, entraînement de modèles personnalisés
+torch==2.4.1
+torchvision==0.19.1
+
+# --- Visualisation ---
+# Courbes d'apprentissage, matrices de confusion, graphiques de métriques
+matplotlib==3.9.2
+seaborn==0.13.2
+# Visualisations interactives (t-SNE, PCA 2D)
+plotly==5.24.1
+
+# --- Données et utilitaires ---
+# Calculs matriciels (embeddings, features)
+numpy==1.26.4
+# Manipulation de tableaux de résultats et métriques
+pandas==2.2.3
+# Barres de progression pour entraînement et évaluation
+tqdm==4.66.5
+# Chargement des variables d'environnement depuis .env
+python-dotenv==1.0.1
+
+# --- Notebooks Jupyter ---
+# Environnement d'expérimentation interactif
+jupyter==1.1.1
+ipykernel==6.29.5
+
+# --- Tests unitaires ---
+# Tests automatisés des modules A, B, C
+pytest==7.4.4
