@@ -147,11 +147,11 @@ python main.py --pipeline full --input data/raw/video.mp4
 
 | Étudiant | Rôle | Module(s) | Branche Git |
 |----------|------|-----------|-------------|
-| Étudiant 1 | Ingénieur ML — Détection | Module A1 (Naïves Bayes) | `feature/module-a` |
-| Étudiant 2 | Ingénieur ML — Vision | Module A2 (YOLO + OCR) | `feature/module-a` |
-| Étudiant 3 | Ingénieur Data | Module B (Clustering) | `feature/module-b` |
-| Étudiant 4 | Ingénieur IA | Module C (MDP) | `feature/module-c` |
-| Étudiant 5 | Chef de projet & Éthique | Module D + coordination | `feature/module-d` |
+| NKE GOUETH | Chef de projet | Module A1 (Naïves Bayes) | `feature/module-a` |
+| ELIE NJOCK| membre | Module A2 (YOLO + OCR) | `feature/module-a` |
+| ALI YOUSSOUF | membre| Module B (Clustering) | `feature/module-b` |
+| FOUDA BASILE | membre| Module C (MDP) | `feature/module-c` |
+| NAPANI MAEL | membre | Module D + coordination | `feature/module-d` |
 
 ---
 
