@@ -32,6 +32,12 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+try:
+    import easyocr
+    EASYOCR_AVAILABLE = True
+except ImportError:
+    EASYOCR_AVAILABLE = False
+
 # Suppression des avertissements non critiques
 warnings.filterwarnings("ignore")
 
@@ -768,7 +774,138 @@ def _detect_plates_heuristic(img: np.ndarray, img_path: Path,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PHASE 4 — SEGMENTATION DES CARACTÈRES
+# PHASE 3BIS — OCR SUR LES CROPS DE PLAQUES
+# ══════════════════════════════════════════════════════════════════════════════
+
+def run_ocr_on_crops(plate_crops: list, output_dir: Path) -> list:
+    """
+    Phase 3bis — Reconnaissance OCR sur les crops de plaques.
+
+    Parcourt chaque crop produit par extract_plate_regions() et tente
+    de lire le texte de la plaque via EasyOCR.
+
+    Entrée  : liste de dicts produits par extract_plate_regions()
+              (chaque dict a les clés : crop_path, plate_text, source,
+               detection_method, original_image, blur_score)
+
+    Sortie  : même liste enrichie avec deux champs supplémentaires :
+              - plate_text      : str nettoyé (MAJUSCULES, alphanum only)
+                                  ou None si OCR échoue / confiance trop basse
+              - ocr_confidence  : float [0.0 – 1.0], moyenne des scores
+                                  EasyOCR sur les boîtes retournées,
+                                  0.0 si aucun résultat
+
+    Alimente : Phase 5 (segmentation caractères) — améliore le labellisage
+               automatique des caractères segmentés
+    """
+    if not EASYOCR_AVAILABLE:
+        logger.warning(
+            "EasyOCR non installé (pip install easyocr). "
+            "Phase 3bis ignorée — plate_text restera None pour tous les crops."
+        )
+        for crop_info in plate_crops:
+            crop_info.setdefault("ocr_confidence", 0.0)
+        return plate_crops
+
+    output_dir = Path(output_dir)
+
+    # Initialisation du reader UNE SEULE fois avant la boucle
+    use_gpu = False
+    try:
+        import torch
+        use_gpu = torch.cuda.is_available()
+    except ImportError:
+        pass
+
+    logger.info(f"Phase 3bis : initialisation EasyOCR (gpu={use_gpu})...")
+    reader = easyocr.Reader(["en"], gpu=use_gpu)
+
+    ocr_results_log = []
+    n_success = 0
+    n_low_conf = 0
+    n_failed = 0
+
+    for crop_info in tqdm(plate_crops, desc="OCR plaques"):
+        crop_path = crop_info.get("crop_path", "")
+        source = crop_info.get("source", "")
+        already_has_text = (
+            crop_info.get("plate_text") is not None
+            and source == "mendeley"
+        )
+
+        try:
+            img = cv2.imread(crop_path)
+            if img is None:
+                crop_info["ocr_confidence"] = 0.0
+                n_failed += 1
+                ocr_results_log.append({
+                    "crop_path": crop_path,
+                    "plate_text": crop_info.get("plate_text"),
+                    "ocr_confidence": 0.0,
+                    "source": source,
+                })
+                continue
+
+            detections = reader.readtext(img)
+
+            if not detections:
+                crop_info["ocr_confidence"] = 0.0
+                if not already_has_text:
+                    crop_info["plate_text"] = None
+                n_failed += 1
+            else:
+                # Concaténation des textes et moyenne des confiances
+                texts = []
+                confidences = []
+                for (_bbox, text, conf) in detections:
+                    texts.append(text)
+                    confidences.append(conf)
+
+                raw_text = "".join(texts)
+                # Nettoyage : majuscules, alphanum uniquement
+                cleaned = re.sub(r"[^A-Z0-9]", "", raw_text.upper())
+                avg_conf = float(sum(confidences) / len(confidences))
+
+                if avg_conf >= 0.45 and cleaned:
+                    if not already_has_text:
+                        crop_info["plate_text"] = cleaned
+                    crop_info["ocr_confidence"] = avg_conf
+                    n_success += 1
+                else:
+                    if not already_has_text:
+                        crop_info["plate_text"] = None
+                    crop_info["ocr_confidence"] = avg_conf
+                    n_low_conf += 1
+
+        except Exception as e:
+            logger.error(f"OCR erreur sur {crop_path} : {e}")
+            crop_info["ocr_confidence"] = 0.0
+            if not already_has_text:
+                crop_info["plate_text"] = None
+            n_failed += 1
+
+        ocr_results_log.append({
+            "crop_path": crop_path,
+            "plate_text": crop_info.get("plate_text"),
+            "ocr_confidence": crop_info.get("ocr_confidence", 0.0),
+            "source": source,
+        })
+
+    # Sauvegarde du rapport OCR
+    ocr_report_path = output_dir / "ocr_results.json"
+    with open(ocr_report_path, "w", encoding="utf-8") as f:
+        json.dump(ocr_results_log, f, indent=2, ensure_ascii=False)
+
+    logger.info(
+        f"Phase 3bis OCR terminée : {n_success} textes lus, "
+        f"{n_low_conf} confiance insuffisante (<0.45), "
+        f"{n_failed} échecs — résultats → {ocr_report_path}"
+    )
+    return plate_crops
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 5 — SEGMENTATION DES CARACTÈRES
 # ══════════════════════════════════════════════════════════════════════════════
 
 def segment_characters(plate_crops_list: list, output_dir: Path) -> list:
@@ -906,7 +1043,7 @@ def _display_char_distribution(distribution: dict):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PHASE 5 — NETTOYAGE ET VALIDATION
+# PHASE 6 — NETTOYAGE ET VALIDATION
 # ══════════════════════════════════════════════════════════════════════════════
 
 def clean_and_validate(chars_list: list, crops_list: list) -> tuple:
@@ -1110,7 +1247,7 @@ def _augment_chars(samples: list, n_needed: int, label: str) -> list:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PHASE 6 — EXTRACTION DES FEATURES MANUELLES
+# PHASE 7 — EXTRACTION DES FEATURES MANUELLES
 # ══════════════════════════════════════════════════════════════════════════════
 
 def extract_all_features(chars_valides: list, crops_valides: list) -> tuple:
@@ -1317,7 +1454,7 @@ def _extract_plate_features(img: np.ndarray) -> np.ndarray:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PHASE 7 — SAUVEGARDE ET SPLIT
+# PHASE 8 — SAUVEGARDE ET SPLIT
 # ══════════════════════════════════════════════════════════════════════════════
 
 def save_and_split(X: np.ndarray, y: np.ndarray,
@@ -1591,9 +1728,19 @@ def _load_pipeline_state() -> dict:
 def main():
     """
     Point d'entrée du pipeline PlateVision.
-    Exécute les 7 phases de préparation des données.
+    Exécute les 8 phases de préparation des données.
     Supporte la reprise à partir d'une phase donnée (--from-phase) ou
     l'exécution d'une phase unique (--phase-only).
+
+    Numérotation des phases :
+      1 — Acquisition
+      2 — EDA
+      3 — Extraction régions de plaques
+      4 — OCR sur les crops (Phase 3bis)
+      5 — Segmentation des caractères
+      6 — Nettoyage et validation
+      7 — Extraction des features manuelles
+      8 — Sauvegarde et split
     """
     parser = argparse.ArgumentParser(
         description="PlateVision — Pipeline de préparation des datasets"
@@ -1602,17 +1749,17 @@ def main():
         "--from-phase",
         type=int,
         default=1,
-        choices=range(1, 8),
+        choices=range(1, 9),
         metavar="N",
-        help="Reprendre à partir de la phase N (1-7)"
+        help="Reprendre à partir de la phase N (1-8)"
     )
     parser.add_argument(
         "--phase-only",
         type=int,
         default=None,
-        choices=range(1, 8),
+        choices=range(1, 9),
         metavar="N",
-        help="Exécuter uniquement la phase N"
+        help="Exécuter uniquement la phase N (1-8)"
     )
     args = parser.parse_args()
 
@@ -1635,7 +1782,7 @@ def main():
     if args.phase_only is not None:
         phases_to_run = {args.phase_only}
     else:
-        phases_to_run = set(range(args.from_phase, 8))
+        phases_to_run = set(range(args.from_phase, 9))
 
     logger.info(f"PlateVision — Phases à exécuter : {sorted(phases_to_run)}")
 
@@ -1687,10 +1834,38 @@ def main():
             "crops_file": str(OUTPUT_DIR / "plate_crops"),
         })
 
-    # ── Phase 4 ───────────────────────────────────────────────────────────────
+    # ── Phase 4 — OCR ─────────────────────────────────────────────────────────
     if 4 in phases_to_run:
         logger.info("═" * 60)
-        logger.info("PHASE 4 — SEGMENTATION CARACTÈRES")
+        logger.info("PHASE 4 — OCR SUR LES CROPS (3BIS)")
+        logger.info("═" * 60)
+        if plate_crops is None:
+            crops_dir = OUTPUT_DIR / "plate_crops"
+            plate_crops = [
+                {
+                    "crop_path": str(p),
+                    "plate_text": None,
+                    "source": "unknown",
+                    "detection_method": "loaded",
+                    "original_image": "",
+                    "blur_score": 0.0,
+                }
+                for p in sorted(crops_dir.glob("*.jpg"))
+            ] if crops_dir.exists() else []
+            logger.info(f"Phase 4 (OCR) : {len(plate_crops)} crops chargés depuis le disque.")
+
+        plate_crops = run_ocr_on_crops(plate_crops, OUTPUT_DIR)
+        n_with_text = sum(1 for c in plate_crops if c.get("plate_text"))
+        _save_pipeline_state(4, {
+            "n_crops": len(plate_crops),
+            "n_with_text": n_with_text,
+            "ocr_results": str(OUTPUT_DIR / "ocr_results.json"),
+        })
+
+    # ── Phase 5 ───────────────────────────────────────────────────────────────
+    if 5 in phases_to_run:
+        logger.info("═" * 60)
+        logger.info("PHASE 5 — SEGMENTATION CARACTÈRES")
         logger.info("═" * 60)
         if plate_crops is None:
             # Reconstituer la liste depuis le dossier crops
@@ -1706,15 +1881,15 @@ def main():
                 }
                 for p in sorted(crops_dir.glob("*.jpg"))
             ] if crops_dir.exists() else []
-            logger.info(f"Phase 4 : {len(plate_crops)} crops chargés depuis le disque.")
+            logger.info(f"Phase 5 : {len(plate_crops)} crops chargés depuis le disque.")
 
         chars_list = segment_characters(plate_crops, OUTPUT_DIR)
-        _save_pipeline_state(4, {"n_chars": len(chars_list)})
+        _save_pipeline_state(5, {"n_chars": len(chars_list)})
 
-    # ── Phase 5 ───────────────────────────────────────────────────────────────
-    if 5 in phases_to_run:
+    # ── Phase 6 ───────────────────────────────────────────────────────────────
+    if 6 in phases_to_run:
         logger.info("═" * 60)
-        logger.info("PHASE 5 — NETTOYAGE ET VALIDATION")
+        logger.info("PHASE 6 — NETTOYAGE ET VALIDATION")
         logger.info("═" * 60)
         if chars_list is None:
             # Reconstituer depuis le dossier characters
@@ -1732,7 +1907,7 @@ def main():
                                 "bbox": (0, 0, 0, 0),
                                 "label_certain": label_dir.name in VALID_CHARS,
                             })
-            logger.info(f"Phase 5 : {len(chars_list)} chars chargés depuis le disque.")
+            logger.info(f"Phase 6 : {len(chars_list)} chars chargés depuis le disque.")
 
         if plate_crops is None:
             crops_dir = OUTPUT_DIR / "plate_crops"
@@ -1743,39 +1918,39 @@ def main():
             ] if crops_dir.exists() else []
 
         chars_valides, crops_valides = clean_and_validate(chars_list, plate_crops)
-        _save_pipeline_state(5, {
+        _save_pipeline_state(6, {
             "n_chars_valides": len(chars_valides),
             "n_crops_valides": len(crops_valides),
-        })
-
-    # ── Phase 6 ───────────────────────────────────────────────────────────────
-    if 6 in phases_to_run:
-        logger.info("═" * 60)
-        logger.info("PHASE 6 — EXTRACTION FEATURES MANUELLES")
-        logger.info("═" * 60)
-        if chars_valides is None or crops_valides is None:
-            logger.error("Phase 6 nécessite les résultats de la phase 5. "
-                         "Relancer avec --from-phase 5")
-            sys.exit(1)
-        X, y = extract_all_features(chars_valides, crops_valides)
-        _save_pipeline_state(6, {
-            "X_shape": list(X.shape) if X is not None else [],
-            "y_shape": list(y.shape) if y is not None else [],
         })
 
     # ── Phase 7 ───────────────────────────────────────────────────────────────
     if 7 in phases_to_run:
         logger.info("═" * 60)
-        logger.info("PHASE 7 — SAUVEGARDE ET SPLIT")
+        logger.info("PHASE 7 — EXTRACTION FEATURES MANUELLES")
+        logger.info("═" * 60)
+        if chars_valides is None or crops_valides is None:
+            logger.error("Phase 7 nécessite les résultats de la phase 6. "
+                         "Relancer avec --from-phase 6")
+            sys.exit(1)
+        X, y = extract_all_features(chars_valides, crops_valides)
+        _save_pipeline_state(7, {
+            "X_shape": list(X.shape) if X is not None else [],
+            "y_shape": list(y.shape) if y is not None else [],
+        })
+
+    # ── Phase 8 ───────────────────────────────────────────────────────────────
+    if 8 in phases_to_run:
+        logger.info("═" * 60)
+        logger.info("PHASE 8 — SAUVEGARDE ET SPLIT")
         logger.info("═" * 60)
         if X is None or y is None:
-            logger.error("Phase 7 nécessite les features de la phase 6. "
-                         "Relancer avec --from-phase 6")
+            logger.error("Phase 8 nécessite les features de la phase 7. "
+                         "Relancer avec --from-phase 7")
             sys.exit(1)
         if datasets_dict is None:
             datasets_dict = load_raw_datasets(ROBOFLOW_PATH, MENDELEY_PATH)
         results = save_and_split(X, y, crops_valides, datasets_dict, OUTPUT_DIR)
-        _save_pipeline_state(7, results)
+        _save_pipeline_state(8, results)
 
     elapsed = time.time() - start_time
     minutes, seconds = divmod(int(elapsed), 60)
