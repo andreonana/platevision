@@ -1355,10 +1355,12 @@ def extract_all_features(chars_valides: list, crops_valides: list) -> tuple:
     """
     Extrait les features manuelles pour le Naïves Bayes Gaussien (Module A1).
     Features : histogramme HSV, gradient, ratio pixels, cadre métallique,
-               dimensions, densité — vecteur 120D par caractère.
+               dimensions, densité — vecteur 20D par caractère (pipeline interne).
+    Note     : preprocessing/feature_extraction.py expose la version 175D
+               alignée sur le cahier des charges (75D char + 100D plaque).
 
     Entrée  : chars_valides (liste dicts), crops_valides (liste dicts)
-    Sortie  : (X: ndarray (N,120) float32, y: ndarray (N,) int32)
+    Sortie  : (X: ndarray (N,20) float32, y: ndarray (N,) int32)
     Alimente : Module A1 (Naïves Bayes Gaussien)
     """
     # Cache des features de plaques (coûteux à calculer)
@@ -1564,7 +1566,9 @@ def save_and_split(X: np.ndarray, y: np.ndarray,
     """
     Effectue les splits train/val/test, sauvegarde tous les artefacts.
 
-    Entrée  : X (N,120), y (N,), crops validés, répertoire de sortie
+    Entrée  : X (N,20), y (N,), crops validés, répertoire de sortie
+    Note    : le module preprocessing/feature_extraction.py produit les
+              vecteurs 175D (cahier des charges) à utiliser pour le NB final.
     Sortie  : dictionnaire récapitulatif
     Alimente : Module A1 (features.npy), Module A2 (images YOLO)
     """
@@ -1633,7 +1637,7 @@ def save_and_split(X: np.ndarray, y: np.ndarray,
             "val": results["chars"].get("val", 0),
             "test": results["chars"].get("test", 0),
         },
-        "feature_dim": 120,
+        "feature_dim": 20,   # pipeline interne ; cahier des charges : 175D (preprocessing/feature_extraction.py)
         "n_classes_chars": 36,
         "label_to_idx": LABEL_TO_IDX,
         "biais_identifies": [

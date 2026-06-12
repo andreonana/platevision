@@ -24,7 +24,7 @@ N_PER_CLASS = 20     # ≥ 5 pour que toutes les paires soient analysées
 def _synthetic(seed=0):
     """Retourne (X, y) synthétiques couvrant les 36 classes."""
     rng = np.random.default_rng(seed)
-    X = rng.random((N_CLASSES * N_PER_CLASS, 120)).astype(np.float32)
+    X = rng.random((N_CLASSES * N_PER_CLASS, 175)).astype(np.float32)
     y = np.repeat(np.arange(N_CLASSES), N_PER_CLASS)
     return X, y
 
@@ -73,7 +73,7 @@ def test_discriminability_skips_insufficient_data():
     """Une classe avec < 5 samples est ignorée (pas d'exception)."""
     rng = np.random.default_rng(42)
     # Seulement 3 samples pour les classes '0' et 'O' (indices 0 et 24)
-    X = rng.random((N_CLASSES * N_PER_CLASS, 120)).astype(np.float32)
+    X = rng.random((N_CLASSES * N_PER_CLASS, 175)).astype(np.float32)
     y = np.repeat(np.arange(N_CLASSES), N_PER_CLASS)
     # On retire presque tous les échantillons de '0' (idx 0)
     mask = ~np.isin(np.arange(len(y)), np.where(y == 0)[0][3:])
@@ -95,7 +95,7 @@ def test_feature_importance_all_groups_present():
     result = compute_feature_importance(X, y, VALID_CHARS)
 
     expected_groups = {
-        "A_forme", "B_zones", "C_transitions", "D_gradients",
+        "A_forme", "B_zones", "C_projections", "D_gradients",
         "HSV_hist", "grad_plaque", "dark_ratio", "metal_frame",
     }
     assert set(result["group_scores"].keys()) == expected_groups
@@ -133,7 +133,7 @@ def test_generate_report_creates_file(tmp_path):
     assert report.exists(), "Le fichier de rapport n'a pas été créé"
     content = report.read_text(encoding="utf-8")
     # Vérifications minimales du contenu structurel
-    assert "ANALYSE FEATURES 120D" in content
+    assert "ANALYSE FEATURES 175D" in content
     assert "IMPORTANCE PAR GROUPE"  in content
     assert "PAIRES CRITIQUES"       in content
     assert "QUESTIONS JURY"         in content

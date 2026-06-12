@@ -1,7 +1,8 @@
 """
-Extraction des features manuelles 120D pour le Module A1 (Naïves Bayes).
-Miroir fidèle de _extract_char_features / _extract_plate_features de
-prepare_datasets.py — exposé ici en fonctions unitaires testables.
+Extraction des features manuelles 175D pour le Module A1 (Naïves Bayes).
+Cahier des charges §3.2 :
+  Caractère (75D) : forme étendue (6D) + zones (8D) + projections+CC (57D) + Sobel (4D)
+  Plaque    (100D): HSV hist (96D) + gradient (2D) + dark Otsu (1D) + frame contour (1D)
 """
 
 import json
@@ -15,54 +16,63 @@ from tqdm import tqdm
 logger = logging.getLogger(__name__)
 
 # ── Dimensions ────────────────────────────────────────────────────────────────
-CHAR_FEAT_DIM  = 20
+CHAR_FEAT_DIM  = 75
 PLATE_FEAT_DIM = 100
-TOTAL_FEAT_DIM = 120   # CHAR_FEAT_DIM + PLATE_FEAT_DIM
+TOTAL_FEAT_DIM = 175   # CHAR_FEAT_DIM + PLATE_FEAT_DIM
 
 
 def extract_char_features(img: np.ndarray) -> np.ndarray:
     """
-    Extrait le vecteur 20D d'un caractère 28×28 (niveaux de gris uint8).
-    Miroir exact de _extract_char_features() dans prepare_datasets.py.
+    Extrait le vecteur 75D d'un caractère 28×28 (niveaux de gris uint8).
 
-    Groupe A — forme globale (4D) :
-      [0]  ratio h/w
-      [1]  densité : nb pixels > 127 / (28×28)
-      [2]  centroïde cx normalisé (cx_pixels / W)
-      [3]  centroïde cy normalisé (cy_pixels / H)
+    Groupe A — forme étendue (6D) :
+      [0]  H_bb      : hauteur bounding-box normalisée / 28
+      [1]  W_bb      : largeur bounding-box normalisée / 28
+      [2]  ratio_hw  : H / W
+      [3]  densité   : nb pixels > 128 / (28×28)
+      [4]  cx        : centroïde x normalisé / W
+      [5]  cy        : centroïde y normalisé / H
 
     Groupe B — densités zonales (8D) :
       Grille 4 colonnes × 2 lignes → 8 zones
-      [4:12] densité moyenne de chaque zone (pixels > 128 / taille zone)
+      [6:14] densité moyenne de chaque zone (pixels > 128 / taille zone)
 
-    Groupe C — transitions 0→1 (4D) :
-      [12] mean transitions horizontales (diff==1 par ligne)
-      [13] std  transitions horizontales
-      [14] mean transitions verticales   (diff==1 par colonne)
-      [15] std  transitions verticales
+    Groupe C — projections + composantes connexes (57D) :
+      [14:42] proj_h_0..27 : nb pixels > 127 par ligne / 28  (projection horizontale)
+      [42:70] proj_v_0..27 : nb pixels > 127 par colonne / 28 (projection verticale)
+      [70]    n_components : (n_labels - 1) / 10.0
 
     Groupe D — gradient Sobel (4D) :
       Sobel X et Y sur image uint8, ksize=3
-      [16] mean Sobel X · [17] std Sobel X
-      [18] mean Sobel Y · [19] std Sobel Y
+      [71] sobel_x_mean · [72] sobel_x_std
+      [73] sobel_y_mean · [74] sobel_y_std
 
-    Robustesse : img entièrement noire → np.zeros(20)
-    Retourne : np.ndarray float32 shape (20,)
+    Robustesse : img entièrement noire → np.zeros(75)
+    Retourne : np.ndarray float32 shape (75,)
     """
     if img.max() == 0:
         return np.zeros(CHAR_FEAT_DIM, dtype=np.float32)
 
     H, W = img.shape
+    binary   = (img > 128).astype(np.float32)
+    total    = binary.sum() + 1e-6
+    ys, xs   = np.mgrid[0:H, 0:W]
 
     # ── Groupe A ──────────────────────────────────────────────────────────────
     ratio_hw = H / W
     density  = float(np.count_nonzero(img > 128)) / (H * W)
-    binary   = (img > 128).astype(np.float32)
-    total    = binary.sum() + 1e-6
-    ys, xs   = np.mgrid[0:H, 0:W]
     cx = float((xs * binary).sum() / total) / W
     cy = float((ys * binary).sum() / total) / H
-    feat_A = np.array([ratio_hw, density, cx, cy], dtype=np.float32)
+
+    if binary.any():
+        rows_nonzero = np.where(binary > 0)[0]
+        cols_nonzero = np.where(binary > 0)[1]
+        H_bb = float(np.ptp(rows_nonzero) + 1) / 28.0
+        W_bb = float(np.ptp(cols_nonzero) + 1) / 28.0
+    else:
+        H_bb, W_bb = 0.0, 0.0
+
+    feat_A = np.array([H_bb, W_bb, ratio_hw, density, cx, cy], dtype=np.float32)
 
     # ── Groupe B ──────────────────────────────────────────────────────────────
     feat_B  = np.zeros(8, dtype=np.float32)
@@ -76,13 +86,18 @@ def extract_char_features(img: np.ndarray) -> np.ndarray:
             feat_B[row * 4 + col] = float(zone.mean()) if zone.size > 0 else 0.0
 
     # ── Groupe C ──────────────────────────────────────────────────────────────
-    bin_u8    = binary.astype(np.uint8)
-    row_trans = [int(np.count_nonzero(np.diff(bin_u8[r]) == 1)) for r in range(H)]
-    col_trans = [int(np.count_nonzero(np.diff(bin_u8[:, c]) == 1)) for c in range(W)]
-    feat_C = np.array([
-        float(np.mean(row_trans)), float(np.std(row_trans)),
-        float(np.mean(col_trans)), float(np.std(col_trans)),
-    ], dtype=np.float32)
+    bin_bool = img > 128
+    proj_h   = bin_bool.sum(axis=1) / 28.0   # (28,) — densité par ligne
+    proj_v   = bin_bool.sum(axis=0) / 28.0   # (28,) — densité par colonne
+
+    n_labels, _ = cv2.connectedComponents(binary.astype(np.uint8))
+    n_components = float(n_labels - 1) / 10.0   # -1 car le fond est compté
+
+    feat_C = np.concatenate([
+        proj_h.astype(np.float32),
+        proj_v.astype(np.float32),
+        np.array([n_components], dtype=np.float32),
+    ])  # 28 + 28 + 1 = 57D
 
     # ── Groupe D ──────────────────────────────────────────────────────────────
     sobel_x = cv2.Sobel(img, cv2.CV_64F, 1, 0, ksize=3)
@@ -92,7 +107,7 @@ def extract_char_features(img: np.ndarray) -> np.ndarray:
         float(sobel_y.mean()), float(sobel_y.std()),
     ], dtype=np.float32)
 
-    return np.concatenate([feat_A, feat_B, feat_C, feat_D])
+    return np.concatenate([feat_A, feat_B, feat_C, feat_D])  # 6+8+57+4 = 75D
 
 
 def extract_plate_features(img: np.ndarray) -> np.ndarray:
@@ -106,57 +121,61 @@ def extract_plate_features(img: np.ndarray) -> np.ndarray:
 
     Gradient magnitude (2D) :
       Gris float32/255 → Sobel X + Y → magnitude = √(Gx²+Gy²)
-      [96] mean · [97] std
+      [96] grad_mean · [97] grad_std
 
-    Ratio pixels sombres (1D) :
-      Pixels avec V < 50 (canal HSV) / total pixels
-      [98] dark_ratio
+    Ratio pixels sombres — seuillage Otsu inversé (1D) :
+      Binarisation THRESH_BINARY_INV + THRESH_OTSU sur image grise
+      [98] dark_ratio_otsu = nb pixels blancs (sombres) / total pixels
 
-    Cadre métallique (1D) :
-      Bordure 10% de chaque côté (top/bottom/left/right)
-      Pixels avec S < 30 ET V > 150 / total pixels bordure
-      [99] = 1.0 si ratio > 0.60, sinon 0.0
+    Présence cadre — détection de contour (1D) :
+      Binarisation THRESH_BINARY + THRESH_OTSU puis findContours
+      Bounding rect du plus grand contour externe :
+      [99] has_frame_contour = 1.0 si area_ratio > 0.70, sinon 0.0
 
     Retourne : np.ndarray float32 shape (100,)
     """
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    hsv    = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    gray_u8 = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     # ── Histogramme HSV ───────────────────────────────────────────────────────
     def _norm_hist(h):
-        s = h.sum() + 1e-7
-        return (h / s).astype(np.float32)
+        return (h / (h.sum() + 1e-7)).astype(np.float32)
 
-    hist_h = cv2.calcHist([hsv], [0], None, [32], [0, 180]).flatten()
-    hist_s = cv2.calcHist([hsv], [1], None, [32], [0, 256]).flatten()
-    hist_v = cv2.calcHist([hsv], [2], None, [32], [0, 256]).flatten()
+    hist_h   = cv2.calcHist([hsv], [0], None, [32], [0, 180]).flatten()
+    hist_s   = cv2.calcHist([hsv], [1], None, [32], [0, 256]).flatten()
+    hist_v   = cv2.calcHist([hsv], [2], None, [32], [0, 256]).flatten()
     feat_hsv = np.concatenate([_norm_hist(hist_h), _norm_hist(hist_s), _norm_hist(hist_v)])
 
     # ── Gradient magnitude ────────────────────────────────────────────────────
-    gray      = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
-    sobel_x   = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-    sobel_y   = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+    gray_f32  = gray_u8.astype(np.float32) / 255.0
+    sobel_x   = cv2.Sobel(gray_f32, cv2.CV_64F, 1, 0, ksize=3)
+    sobel_y   = cv2.Sobel(gray_f32, cv2.CV_64F, 0, 1, ksize=3)
     magnitude = np.sqrt(sobel_x ** 2 + sobel_y ** 2)
     feat_grad = np.array([float(magnitude.mean()), float(magnitude.std())],
                          dtype=np.float32)
 
-    # ── Ratio pixels sombres (V < 50) ─────────────────────────────────────────
-    v_channel = hsv[:, :, 2].astype(np.float32)
-    dark_ratio = float((v_channel < 50).sum()) / v_channel.size
+    # ── Ratio pixels sombres (seuillage Otsu inversé) ─────────────────────────
+    _, binary_otsu = cv2.threshold(
+        gray_u8, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+    )
+    dark_ratio = float(np.count_nonzero(binary_otsu)) / binary_otsu.size
     feat_dark  = np.array([dark_ratio], dtype=np.float32)
 
-    # ── Présence cadre métallique ─────────────────────────────────────────────
-    H, W   = img.shape[:2]
-    bh     = max(1, H // 10)   # 10% hauteur
-    bw     = max(1, W // 10)   # 10% largeur
-    border = np.concatenate([
-        hsv[:bh, :, :].reshape(-1, 3),
-        hsv[-bh:, :, :].reshape(-1, 3),
-        hsv[:, :bw, :].reshape(-1, 3),
-        hsv[:, -bw:, :].reshape(-1, 3),
-    ])
-    metal_mask  = (border[:, 1] < 30) & (border[:, 2] > 150)
-    metal_ratio = float(metal_mask.sum()) / len(border) if len(border) > 0 else 0.0
-    feat_metal  = np.array([1.0 if metal_ratio > 0.60 else 0.0], dtype=np.float32)
+    # ── Présence cadre — détection contour externe ────────────────────────────
+    _, binary_frame = cv2.threshold(
+        gray_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+    )
+    contours, _ = cv2.findContours(
+        binary_frame, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    has_frame = 0.0
+    if contours:
+        largest = max(contours, key=cv2.contourArea)
+        _, _, w, h = cv2.boundingRect(largest)
+        H_img, W_img = img.shape[:2]
+        area_ratio = (w * h) / (W_img * H_img)
+        has_frame  = 1.0 if area_ratio > 0.70 else 0.0
+    feat_metal = np.array([has_frame], dtype=np.float32)
 
     return np.concatenate([feat_hsv, feat_grad, feat_dark, feat_metal])
 
@@ -164,12 +183,12 @@ def extract_plate_features(img: np.ndarray) -> np.ndarray:
 def extract_feature_vector(char_img: np.ndarray,
                             plate_img: np.ndarray) -> np.ndarray:
     """
-    Combine char + plate en vecteur 120D.
+    Combine char + plate en vecteur 175D.
 
-    char_img  : np.ndarray (28, 28) uint8 niveaux de gris
-    plate_img : np.ndarray (60, 200, 3) uint8 BGR
+    char_img  : np.ndarray (28, 28) uint8 niveaux de gris  → 75D
+    plate_img : np.ndarray (60, 200, 3) uint8 BGR           → 100D
 
-    Retourne : np.ndarray float32 shape (120,)
+    Retourne : np.ndarray float32 shape (175,)
     """
     return np.concatenate([
         extract_char_features(char_img),
@@ -185,7 +204,7 @@ def extract_features_batch(char_paths: list,
     char_paths  : liste de N chemins vers images 28×28 (grayscale)
     plate_paths : liste de N chemins vers crops 200×60 (BGR)
 
-    Retourne : np.ndarray float32 shape (N, 120)
+    Retourne : np.ndarray float32 shape (N, 175)
     """
     N      = len(char_paths)
     X      = np.zeros((N, TOTAL_FEAT_DIM), dtype=np.float32)
@@ -210,34 +229,36 @@ def extract_features_batch(char_paths: list,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# NOMMAGE DES 120 FEATURES (pour rapports jury)
+# NOMMAGE DES 175 FEATURES (pour rapports jury)
 # ══════════════════════════════════════════════════════════════════════════════
 
 FEATURE_NAMES: list = (
-    ["ratio_hw", "densité", "cx", "cy"]                        # [0:4]   groupe A
-    + [f"zone_{i}" for i in range(8)]                          # [4:12]  groupe B
-    + ["trans_h_mean", "trans_h_std", "trans_v_mean", "trans_v_std"]  # [12:16] C
-    + ["sobel_x_mean", "sobel_x_std", "sobel_y_mean", "sobel_y_std"]  # [16:20] D
-    + [f"H_bin_{i}" for i in range(32)]                        # [20:52]
-    + [f"S_bin_{i}" for i in range(32)]                        # [52:84]
-    + [f"V_bin_{i}" for i in range(32)]                        # [84:116]
-    + ["grad_mean", "grad_std"]                                # [116:118]
-    + ["dark_ratio", "metal_frame"]                            # [118:120]
+    ["H_bb", "W_bb", "ratio_hw", "densité", "cx", "cy"]       # [0:6]   groupe A
+    + [f"zone_{i}" for i in range(8)]                          # [6:14]  groupe B
+    + [f"proj_h_{i}" for i in range(28)]                       # [14:42] groupe C
+    + [f"proj_v_{i}" for i in range(28)]                       # [42:70]
+    + ["n_components"]                                         # [70]
+    + ["sobel_x_mean", "sobel_x_std", "sobel_y_mean", "sobel_y_std"]  # [71:75] D
+    + [f"H_bin_{i}" for i in range(32)]                        # [75:107]
+    + [f"S_bin_{i}" for i in range(32)]                        # [107:139]
+    + [f"V_bin_{i}" for i in range(32)]                        # [139:171]
+    + ["grad_mean", "grad_std"]                                # [171:173]
+    + ["dark_ratio_otsu", "has_frame_contour"]                 # [173:175]
 )
 
-# Paires de caractères critiques pour MINT/DGI (confusion → fraude ou rejet valide)
+# Paires de caractères critiques pour MINT/DGI
 _CRITICAL_PAIRS = [("0", "O"), ("1", "I"), ("B", "8"), ("5", "S"), ("6", "G")]
 
-# Groupes de features pour l'analyse d'importance
+# Groupes de features pour l'analyse d'importance (indices mis à jour 175D)
 _FEATURE_GROUPS = {
-    "A_forme":       slice(0,   4),
-    "B_zones":       slice(4,  12),
-    "C_transitions": slice(12, 16),
-    "D_gradients":   slice(16, 20),
-    "HSV_hist":      slice(20, 116),
-    "grad_plaque":   slice(116, 118),
-    "dark_ratio":    slice(118, 119),
-    "metal_frame":   slice(119, 120),
+    "A_forme":        slice(0,   6),
+    "B_zones":        slice(6,  14),
+    "C_projections":  slice(14, 71),
+    "D_gradients":    slice(71, 75),
+    "HSV_hist":       slice(75, 171),
+    "grad_plaque":    slice(171, 173),
+    "dark_ratio":     slice(173, 174),
+    "metal_frame":    slice(174, 175),
 }
 
 
@@ -250,7 +271,7 @@ def analyze_feature_discriminability(X: np.ndarray,
                                       class_names: list,
                                       output_dir: Path = None) -> dict:
     """
-    Analyse si les 120 features discriminent les paires visuellement proches
+    Analyse si les 175 features discriminent les paires visuellement proches
     identifiées comme critiques pour MINT/DGI.
 
     Confondre '0' et 'O' → invalider une plaque valide ou laisser passer un
@@ -304,13 +325,12 @@ def analyze_feature_discriminability(X: np.ndarray,
         else:
             verdict = "indiscriminable"
 
-        # Top-5 features les plus discriminantes (overlap minimal)
-        top5_disc_idx  = np.argsort(overlap_ratios)[:5]
-        top5_conf_idx  = np.argsort(overlap_ratios)[-5:][::-1]
+        top5_disc_idx = np.argsort(overlap_ratios)[:5]
+        top5_conf_idx = np.argsort(overlap_ratios)[-5:][::-1]
 
         results[pair_key] = {
-            "mean_overlap":      round(mean_overlap, 4),
-            "verdict":           verdict,
+            "mean_overlap":        round(mean_overlap, 4),
+            "verdict":             verdict,
             "overlap_per_feature": overlap_ratios.tolist(),
             "top5_discriminant": [
                 {"feature": FEATURE_NAMES[i], "overlap": round(float(overlap_ratios[i]), 4)}
@@ -322,16 +342,16 @@ def analyze_feature_discriminability(X: np.ndarray,
             ],
         }
 
-    # Synthèse globale
     if results:
-        n_disc  = sum(1 for v in results.values() if v["verdict"] == "discriminable")
-        n_ambig = sum(1 for v in results.values() if v["verdict"] == "ambigu")
+        n_disc   = sum(1 for v in results.values() if v["verdict"] == "discriminable")
+        n_ambig  = sum(1 for v in results.values() if v["verdict"] == "ambigu")
         n_indisc = len(results) - n_disc - n_ambig
         global_verdict = (
             f"Sur {len(results)} paires critiques MINT/DGI : "
             f"{n_disc} discriminables, {n_ambig} ambiguës, {n_indisc} indiscriminables. "
-            f"Les features de forme (groupe A-D) séparent partiellement les digits "
-            f"des lettres ; l'histogramme HSV (groupe E) est peu utile pour "
+            f"Les projections horizontales/verticales (groupe C) et la bounding-box "
+            f"(groupe A) séparent mieux les digits des lettres que les transitions "
+            f"précédentes ; l'histogramme HSV (groupe E) est peu utile pour "
             f"caractères en niveaux de gris."
         )
     else:
@@ -343,7 +363,6 @@ def analyze_feature_discriminability(X: np.ndarray,
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Sauvegarde JSON (sans la liste brute overlap_per_feature pour la lisibilité)
         json_data = {
             "critical_pairs": {
                 k: {kk: vv for kk, vv in v.items() if kk != "overlap_per_feature"}
@@ -354,15 +373,14 @@ def analyze_feature_discriminability(X: np.ndarray,
         with open(output_dir / "feature_discriminability.json", "w") as f:
             json.dump(json_data, f, indent=2, ensure_ascii=False)
 
-        # Heatmap (5 paires × 20 premières features)
         try:
             import matplotlib
             matplotlib.use("Agg")
             import matplotlib.pyplot as plt
             import seaborn as sns
 
-            pair_keys  = list(results.keys())
-            heat_data  = np.array([
+            pair_keys = list(results.keys())
+            heat_data = np.array([
                 results[k]["overlap_per_feature"][:20] for k in pair_keys
             ])
 
@@ -417,7 +435,7 @@ def compute_feature_importance(X: np.ndarray,
     group_scores: dict = {}
 
     for group_name, slc in _FEATURE_GROUPS.items():
-        X_g = X[:, slc]
+        X_g    = X[:, slc]
         n_feat = X_g.shape[1]
         if n_feat == 0:
             group_scores[group_name] = 0.0
@@ -427,7 +445,7 @@ def compute_feature_importance(X: np.ndarray,
         var_intra_list = []
 
         for fi in range(n_feat):
-            col = X_g[:, fi]
+            col         = X_g[:, fi]
             class_means = np.array([col[y == c].mean() if (y == c).sum() > 0 else 0.0
                                     for c in classes])
             class_vars  = np.array([col[y == c].var()  if (y == c).sum() > 1 else 0.0
@@ -441,10 +459,10 @@ def compute_feature_importance(X: np.ndarray,
 
     ranking = sorted(group_scores, key=group_scores.get, reverse=True)
 
-    top    = ranking[0]
-    hsv_s  = group_scores.get("HSV_hist", 0.0)
-    a_s    = group_scores.get("A_forme", 1e-7)
-    ratio  = round(hsv_s / max(a_s, 1e-7), 1)
+    top   = ranking[0]
+    hsv_s = group_scores.get("HSV_hist", 0.0)
+    a_s   = group_scores.get("A_forme", 1e-7)
+    ratio = round(hsv_s / max(a_s, 1e-7), 1)
 
     conclusion = (
         f"'{top}' est le groupe le plus discriminant "
@@ -491,32 +509,27 @@ def generate_analysis_report(X: np.ndarray,
     lines = []
     sep = "═" * 54
 
-    lines += [
-        sep,
-        "ANALYSE FEATURES 120D — PlateVision A1",
-        sep,
-        "",
-    ]
+    lines += [sep, "ANALYSE FEATURES 175D — PlateVision A1", sep, ""]
 
-    # ── Section 1 : importance par groupe ────────────────────────────────────
+    # ── Section 1 ─────────────────────────────────────────────────────────────
     lines += ["1. IMPORTANCE PAR GROUPE (ratio Fisher)", ""]
     for rank, grp in enumerate(importance["ranking"], 1):
         score = importance["group_scores"][grp]
         lines.append(f"   {rank}. {grp:<16} score = {score:.4f}")
     lines += ["", f"   {importance['conclusion']}", ""]
 
-    # ── Section 2 : paires critiques ─────────────────────────────────────────
+    # ── Section 2 ─────────────────────────────────────────────────────────────
     lines += ["2. PAIRES CRITIQUES MINT/DGI", ""]
     for pair_key, data in discrim["critical_pairs"].items():
         lines.append(f"   {pair_key}")
         lines.append(f"     Verdict       : {data['verdict'].upper()}")
         lines.append(f"     Mean overlap  : {data['mean_overlap']:.4f}")
-        top3 = data["top5_discriminant"][:3]
+        top3     = data["top5_discriminant"][:3]
         top3_str = ", ".join(f"{d['feature']} ({d['overlap']:.2f})" for d in top3)
         lines.append(f"     Top-3 discrim : {top3_str}")
         lines.append("")
 
-    # ── Section 3 : synthèse ──────────────────────────────────────────────────
+    # ── Section 3 ─────────────────────────────────────────────────────────────
     lines += ["3. CONCLUSION POUR LE RAPPORT §4.1", ""]
     lines.append(f"   {discrim['global_verdict']}")
     lines += [""]
@@ -524,37 +537,33 @@ def generate_analysis_report(X: np.ndarray,
     # ── Section 4 : réponses jury ─────────────────────────────────────────────
     lines += ["4. RÉPONSES AUX QUESTIONS JURY", ""]
 
-    # Q1
-    v_0O  = discrim["critical_pairs"].get("0_vs_O",  {}).get("verdict", "non analysé")
-    v_1I  = discrim["critical_pairs"].get("1_vs_I",  {}).get("verdict", "non analysé")
-    o_0O  = discrim["critical_pairs"].get("0_vs_O",  {}).get("mean_overlap", -1)
+    v_0O = discrim["critical_pairs"].get("0_vs_O", {}).get("verdict", "non analysé")
+    v_1I = discrim["critical_pairs"].get("1_vs_I", {}).get("verdict", "non analysé")
+    o_0O = discrim["critical_pairs"].get("0_vs_O", {}).get("mean_overlap", -1)
     lines += [
         '   Q1 : "Les features discriminent-elles \'0\'/\'O\', \'1\'/\'I\' ?"',
-        f"   → Paire 0/O : {v_0O} (overlap moyen = {o_0O:.4f} sur 120 features).",
+        f"   → Paire 0/O : {v_0O} (overlap moyen = {o_0O:.4f} sur 175 features).",
         f"     Paire 1/I : {v_1I}.",
-        "     Les features de forme (ratio_hw, densité, zones) séparent partiellement",
-        "     les digits des lettres. L'overlap résiduel justifie l'usage d'un",
-        "     post-traitement lexical (vérification de la syntaxe de plaque camerounaise).",
+        "     Les projections H/V et la bounding-box séparent partiellement les digits",
+        "     des lettres. L'overlap résiduel justifie un post-traitement lexical",
+        "     (vérification syntaxe plaque camerounaise).",
         "",
     ]
 
-    # Q2
-    hsv_score   = importance["group_scores"].get("HSV_hist", 0)
-    a_score     = importance["group_scores"].get("A_forme", 0)
-    c_score     = importance["group_scores"].get("C_transitions", 0)
+    hsv_score = importance["group_scores"].get("HSV_hist", 0)
+    a_score   = importance["group_scores"].get("A_forme", 0)
+    c_score   = importance["group_scores"].get("C_projections", 0)
     lines += [
         '   Q2 : "Pourquoi l\'indépendance conditionnelle de NB est-elle problématique ?"',
         f"   → HSV_hist (96 bins) a un score Fisher de {hsv_score:.3f} vs {a_score:.3f}",
-        f"     pour A_forme et {c_score:.3f} pour C_transitions.",
-        "     NB suppose 120 features indépendantes conditionnellement à la classe.",
+        f"     pour A_forme et {c_score:.3f} pour C_projections.",
+        "     NB suppose 175 features indépendantes conditionnellement à la classe.",
         "     Or H_bin_i et H_bin_(i+1) sont fortement corrélés (spectre continu),",
-        "     de même que S et V (exposition = saturation + valeur liées).",
-        "     → NB surestime la confiance des prédictions sur les caractères",
-        "       dont la couleur de plaque est proche (plaques jaune vs. blanc).",
+        "     de même que les 28 valeurs proj_h sont liées (profil du même caractère).",
+        "     → NB surestime la confiance : erreurs amplifiées sur paires proches.",
         "",
     ]
 
-    # Q3
     verdict_0O = discrim["critical_pairs"].get("0_vs_O", {}).get("verdict", "non analysé")
     top_disc   = discrim["critical_pairs"].get("0_vs_O", {}).get("top5_discriminant", [])
     feat_disc  = top_disc[0]["feature"] if top_disc else "N/A"
@@ -565,9 +574,8 @@ def generate_analysis_report(X: np.ndarray,
         "     Impact opérationnel :",
         "       • FP (O lu comme 0) → plaque valide rejetée, véhicule bloqué à tort.",
         "       • FN (0 lu comme O) → numéro invalide reconnu comme valide,",
-        "         risque de laisser passer un véhicule dont l'immatriculation",
-        "         n'existe pas dans la base DGI → fuite de contrôle PSTNAC.",
-        "     Mitigation recommandée : vérification syntaxique post-OCR",
+        "         risque de laisser passer un véhicule non enregistré DGI.",
+        "     Mitigation : vérification syntaxique post-OCR",
         "     (pattern plaque camerounaise : LT NNNN L ou NN NNNN LL).",
         "",
     ]
@@ -575,7 +583,6 @@ def generate_analysis_report(X: np.ndarray,
     lines.append(sep)
 
     report_txt = "\n".join(lines)
-
     report_path = output_dir / "feature_analysis_report.txt"
     report_path.write_text(report_txt, encoding="utf-8")
     logger.info(f"Rapport sauvegardé : {report_path}")
@@ -590,22 +597,21 @@ if __name__ == "__main__":
     import argparse
     import sys
 
-    logging.basicConfig(level=logging.INFO,
-                        format="%(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     VALID_CHARS = sorted("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
     DATA_DIR    = Path("data/processed")
     REPORT_DIR  = Path("reports/figures")
 
     parser = argparse.ArgumentParser(
-        description="PlateVision — Extraction et analyse des features 120D"
+        description="PlateVision — Extraction et analyse des features 175D"
     )
     parser.add_argument("--extract", action="store_true",
-        help="Charge features.npy/labels.npy et affiche les statistiques")
+        help="Charge features.npy/labels.npy et affiche la distribution")
     parser.add_argument("--analyze", action="store_true",
         help="Lance l'analyse complète + sauvegarde rapport dans reports/figures/")
     parser.add_argument("--demo", action="store_true",
-        help="Affiche les 120D d'un sample synthétique (verbose)")
+        help="Affiche les 175D d'un sample synthétique (verbose)")
     args = parser.parse_args()
 
     if args.demo:
@@ -613,12 +619,12 @@ if __name__ == "__main__":
         char_img  = rng.integers(20, 220, (28, 28), dtype=np.uint8)
         plate_img = rng.integers(0,  255, (60, 200, 3), dtype=np.uint8)
         vec = extract_feature_vector(char_img, plate_img)
-        print(f"\nVecteur 120D (sample synthétique) :")
+        print(f"\nVecteur 175D (sample synthétique) :")
         print(f"  shape  : {vec.shape}  dtype : {vec.dtype}")
         print(f"  min    : {vec.min():.4f}   max   : {vec.max():.4f}")
         print(f"\n  Détail par feature :")
         for i, (name, val) in enumerate(zip(FEATURE_NAMES, vec)):
-            print(f"  [{i:3d}] {name:<18} = {val:.5f}")
+            print(f"  [{i:3d}] {name:<20} = {val:.5f}")
         sys.exit(0)
 
     feat_path   = DATA_DIR / "features.npy"
@@ -634,13 +640,10 @@ if __name__ == "__main__":
     print(f"Features chargées : {X.shape}  labels : {y.shape}")
 
     cn_path = DATA_DIR / "class_names.txt"
-    if cn_path.exists():
-        class_names = cn_path.read_text().strip().splitlines()
-    else:
-        class_names = VALID_CHARS
+    class_names = cn_path.read_text().strip().splitlines() if cn_path.exists() else VALID_CHARS
 
     if args.extract:
-        print(f"\nDistribution des classes :")
+        print("\nDistribution des classes :")
         for i, name in enumerate(class_names):
             count = int((y == i).sum())
             bar   = "█" * (count // 10)
