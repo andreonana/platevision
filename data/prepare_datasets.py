@@ -961,11 +961,14 @@ def clean_and_validate(chars_list: list, crops_list: list) -> tuple:
             seen_hashes.add(img_hash)
 
             # Validation du label
-            label = str(char_info.get("label", "unknown")).upper()
-            if label != "unknown" and label not in VALID_CHARS:
+            label = str(char_info.get("label", "unknown")).strip().upper()
+            if label != "UNKNOWN" and label not in VALID_CHARS:
                 n_label_invalide += 1
                 continue
-            char_info["label"] = label
+            if label == "UNKNOWN":
+                char_info["label"] = "unknown"
+            else:
+                char_info["label"] = label
 
             valides.append(char_info)
 
