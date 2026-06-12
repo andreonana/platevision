@@ -11,10 +11,16 @@ import numpy as np
 import pytest
 
 from modules.module_a.yolo_ocr_pipeline import (
+    compute_cer,
+    compute_wer,
     detect_plate,
+    deskew_plate_crop,
+    evaluate_full_pipeline,
     evaluate_yolo,
     plot_training_curves,
+    postprocess_ocr_text,
     prepare_yaml,
+    read_plate_ocr,
 )
 
 
@@ -210,3 +216,90 @@ def test_plot_training_curves_creates_png(tmp_path):
     plot_training_curves(run_dir=run_dir, report_dir=tmp_path)
 
     assert (tmp_path / "yolo_training_curves.png").exists()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Partie 2 — OCR
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── postprocess_ocr_text ─────────────────────────────────────────────────────
+
+def test_postprocess_removes_spaces():
+    assert postprocess_ocr_text(" AB 123 cd ") == "AB123CD"
+
+
+def test_postprocess_removes_special_chars():
+    assert postprocess_ocr_text("AB-12.3_CD") == "AB123CD"
+
+
+def test_postprocess_empty_input():
+    assert postprocess_ocr_text("") == ""
+
+
+# ── compute_cer ──────────────────────────────────────────────────────────────
+
+def test_compute_cer_perfect():
+    assert compute_cer("AB123", "AB123") == 0.0
+
+
+def test_compute_cer_one_error():
+    result = compute_cer("AB123", "AB124")
+    assert abs(result - 0.2) < 1e-9
+
+
+def test_compute_cer_empty_ref():
+    assert compute_cer("", "") == 0.0
+    assert compute_cer("", "ABC") == 1.0
+
+
+# ── compute_wer ──────────────────────────────────────────────────────────────
+
+def test_compute_wer_perfect():
+    assert compute_wer("AB123CD", "AB123CD") == 0.0
+
+
+def test_compute_wer_wrong():
+    assert compute_wer("AB123CD", "XY456ZZ") == 1.0
+
+
+# ── deskew_plate_crop ────────────────────────────────────────────────────────
+
+def test_deskew_preserves_shape():
+    crop = np.zeros((60, 200, 3), dtype=np.uint8)
+    out = deskew_plate_crop(crop)
+    assert out.shape == (60, 200, 3)
+
+
+def test_deskew_flat_image():
+    """Image entièrement noire (aucun contour) → retourne sans exception."""
+    crop = np.zeros((60, 200, 3), dtype=np.uint8)
+    out = deskew_plate_crop(crop)
+    assert out.shape == crop.shape
+
+
+# ── read_plate_ocr ───────────────────────────────────────────────────────────
+
+def test_read_plate_ocr_output_keys(tmp_path):
+    """Mock easyocr.Reader → résultat contient les 4 clés attendues."""
+    crop = np.zeros((60, 200, 3), dtype=np.uint8)
+
+    # easyocr readtext retourne list[(bbox, text, conf)]
+    fake_bbox = [[0, 0], [100, 0], [100, 30], [0, 30]]
+    mock_reader = MagicMock()
+    mock_reader.readtext.return_value = [(fake_bbox, "AB123CD", 0.92)]
+
+    with patch("easyocr.Reader", return_value=mock_reader):
+        result = read_plate_ocr(crop, reader=mock_reader)
+
+    assert set(result.keys()) == {"plate_text", "raw_text", "confidence", "n_boxes"}
+    assert isinstance(result["plate_text"], str)
+    assert isinstance(result["confidence"], float)
+    assert isinstance(result["n_boxes"], int)
+
+
+# ── evaluate_full_pipeline ───────────────────────────────────────────────────
+
+def test_evaluate_full_pipeline_missing_weights(tmp_path):
+    """Poids absents → FileNotFoundError."""
+    with pytest.raises(FileNotFoundError):
+        evaluate_full_pipeline(weights_path=tmp_path / "noexist.pt")

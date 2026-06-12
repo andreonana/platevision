@@ -404,6 +404,319 @@ def run_yolo_training_pipeline(epochs: int = 50,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# 7. REDRESSEMENT DU CROP
+# ══════════════════════════════════════════════════════════════════════════════
+
+def deskew_plate_crop(crop: np.ndarray) -> np.ndarray:
+    """
+    Redresse le crop de plaque pour compenser l'angle oblique de la caméra.
+    Retourne le crop original si aucun contour valide ou angle < 2°.
+    """
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    if not contours:
+        return crop
+
+    largest = max(contours, key=cv2.contourArea)
+    if cv2.contourArea(largest) < 100:
+        return crop
+
+    rect = cv2.minAreaRect(largest)
+    angle = rect[2]
+
+    # cv2.minAreaRect renvoie angle dans [-90, 0) — normaliser
+    if angle < -45:
+        angle += 90
+
+    if abs(angle) <= 2 or abs(angle) >= 45:
+        return crop
+
+    h, w = crop.shape[:2]
+    center = (w / 2, h / 2)
+    M = cv2.getRotationMatrix2D(center, angle, 1.0)
+    return cv2.warpAffine(crop, M, (w, h),
+                          flags=cv2.INTER_LINEAR,
+                          borderMode=cv2.BORDER_REPLICATE)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 8. POST-TRAITEMENT OCR
+# ══════════════════════════════════════════════════════════════════════════════
+
+def postprocess_ocr_text(raw_text: str) -> str:
+    """
+    Nettoie et normalise le texte brut EasyOCR.
+    Étapes : majuscules → suppression espaces/tirets/points/underscores
+    → filtre [A-Z0-9]. Retourne "" si résultat vide.
+    """
+    import re
+    text = raw_text.upper()
+    text = re.sub(r"[ \-._]", "", text)
+    text = re.sub(r"[^A-Z0-9]", "", text)
+    return text
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 9. LECTURE OCR D'UN CROP
+# ══════════════════════════════════════════════════════════════════════════════
+
+def read_plate_ocr(crop: np.ndarray,
+                   reader=None,
+                   lang_list: "list | None" = None) -> dict:
+    """
+    Applique EasyOCR sur un crop de plaque.
+    Justification §3.2.2 : EasyOCR gère mieux les polices alphanumériques
+    des plaques camerounaises que Tesseract, supporte le fine-tuning.
+    """
+    if reader is None:
+        import easyocr
+        try:
+            import torch
+            gpu = torch.cuda.is_available()
+        except ImportError:
+            gpu = False
+        reader = easyocr.Reader(lang_list or ["en"], gpu=gpu)
+
+    allowlist = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    raw_results = reader.readtext(
+        crop,
+        detail=1,
+        paragraph=False,
+        allowlist=allowlist,
+    )
+
+    # Trier par position x (gauche → droite)
+    # easyocr retourne list[tuple[bbox, text, conf]]
+    raw_results.sort(key=lambda r: r[0][0][0])  # type: ignore[index]
+
+    raw_text = "".join(str(r[1]) for r in raw_results)  # type: ignore[index]
+    confidences: list[float] = [float(r[2]) for r in raw_results]  # type: ignore[index]
+    confidence = float(np.mean(confidences)) if confidences else 0.0
+    plate_text = postprocess_ocr_text(raw_text)
+
+    return {
+        "plate_text": plate_text,
+        "raw_text":   raw_text,
+        "confidence": confidence,
+        "n_boxes":    len(raw_results),
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 10. MÉTRIQUES CER ET WER
+# ══════════════════════════════════════════════════════════════════════════════
+
+def compute_cer(reference: str, hypothesis: str) -> float:
+    """
+    Character Error Rate = edit_distance(ref, hyp) / len(ref).
+    Implémentation Levenshtein sans bibliothèque externe.
+    """
+    if not reference:
+        return 0.0 if not hypothesis else 1.0
+
+    r, h = list(reference), list(hypothesis)
+    n, m = len(r), len(h)
+    dp = list(range(m + 1))
+
+    for i in range(1, n + 1):
+        prev = dp[:]
+        dp[0] = i
+        for j in range(1, m + 1):
+            if r[i - 1] == h[j - 1]:
+                dp[j] = prev[j - 1]
+            else:
+                dp[j] = 1 + min(prev[j], dp[j - 1], prev[j - 1])
+
+    return dp[m] / n
+
+
+def compute_wer(reference: str, hypothesis: str) -> float:
+    """
+    Word Error Rate sur plaques : chaque plaque entière = 1 mot.
+    ref_words=[reference], hyp_words=[hypothesis].
+    """
+    if not reference:
+        return 0.0 if not hypothesis else 1.0
+    return 0.0 if reference == hypothesis else 1.0
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 11. ÉVALUATION PIPELINE COMPLET YOLO + OCR
+# ══════════════════════════════════════════════════════════════════════════════
+
+def evaluate_full_pipeline(weights_path: "Path | None" = None,
+                            yaml_path: Path = YAML_PATH,
+                            ocr_results_path: Path = Path("data/processed/ocr_results.json"),
+                            report_dir: Path = REPORT_DIR) -> dict:
+    """
+    Évalue le pipeline bout-en-bout YOLO+OCR sur le jeu de test.
+    Calcule CER, WER (métriques obligatoires §4.1 A2).
+    Sauvegarde dans report_dir/yolo_ocr_evaluation.json.
+    """
+    weights_path = Path(weights_path) if weights_path else WEIGHTS_DIR / "yolov8_platevision.pt"
+    if not weights_path.exists():
+        raise FileNotFoundError(f"Poids introuvables : {weights_path}")
+
+    # ── Références OCR ────────────────────────────────────────────────────
+    ocr_results_path = Path(ocr_results_path)
+    references: dict[str, str] = {}
+    if ocr_results_path.exists():
+        with open(ocr_results_path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        entries = raw if isinstance(raw, list) else raw.get("results", [])
+        for entry in entries:
+            pt = entry.get("plate_text") or ""
+            conf = entry.get("ocr_confidence", 0.0) or 0.0
+            img = entry.get("image_path") or entry.get("filename") or ""
+            if pt and conf >= 0.45:
+                references[Path(img).name] = postprocess_ocr_text(pt)
+
+    if len(references) < 10:
+        logger.warning("Seulement %d références OCR disponibles (< 10).", len(references))
+
+    # ── Images de test ────────────────────────────────────────────────────
+    test_dir = Path("data/processed/yolo/images/test")
+    test_images = sorted(test_dir.glob("*.jpg")) if test_dir.exists() else []
+
+    # Filtrer celles qui ont une référence
+    pairs = [(p, references[p.name]) for p in test_images if p.name in references]
+    if not pairs:
+        logger.warning("Aucune image de test avec référence OCR disponible.")
+        pairs = [(p, "") for p in test_images[:20]]
+
+    import easyocr
+    try:
+        import torch
+        gpu = torch.cuda.is_available()
+    except ImportError:
+        gpu = False
+    reader = easyocr.Reader(["en"], gpu=gpu)
+
+    cer_list, wer_list, ocr_conf_list = [], [], []
+    n_detections_ok = 0
+
+    for img_path, ref_text in pairs:
+        det = detect_plate(str(img_path), weights_path=weights_path, save_annotated=False)
+        if det["n_detections"] == 0:
+            cer_list.append(1.0)
+            wer_list.append(1.0)
+            continue
+
+        n_detections_ok += 1
+        crop = det["detections"][0]["crop"]
+        crop = deskew_plate_crop(crop)
+        ocr_res = read_plate_ocr(crop, reader=reader)
+        cer_list.append(compute_cer(ref_text, ocr_res["plate_text"]))
+        wer_list.append(compute_wer(ref_text, ocr_res["plate_text"]))
+        ocr_conf_list.append(ocr_res["confidence"])
+
+    n_tested = len(pairs)
+    perfect = sum(1 for c in cer_list if c == 0.0)
+
+    metrics: dict = {
+        "n_images_tested":   n_tested,
+        "n_detections_ok":   n_detections_ok,
+        "detection_rate":    n_detections_ok / n_tested if n_tested else 0.0,
+        "mean_cer":          float(np.mean(cer_list)) if cer_list else 0.0,
+        "mean_wer":          float(np.mean(wer_list)) if wer_list else 0.0,
+        "mean_ocr_conf":     float(np.mean(ocr_conf_list)) if ocr_conf_list else 0.0,
+        "perfect_reads":     perfect,
+        "perfect_read_rate": perfect / n_tested if n_tested else 0.0,
+    }
+
+    # ── Comparaison NB vs YOLO+OCR ────────────────────────────────────────
+    nb_metrics_path = WEIGHTS_DIR / "naive_bayes_metrics.json"
+    if not nb_metrics_path.exists():
+        nb_metrics_path = Path("models/weights/naive_bayes_metrics.json")
+    if nb_metrics_path.exists():
+        with open(nb_metrics_path, "r", encoding="utf-8") as f:
+            nb = json.load(f)
+        nb_acc = float(nb.get("accuracy", nb.get("test_accuracy", 0.0)))
+        better = "YOLO+OCR meilleur" if metrics["mean_wer"] < (1 - nb_acc) else "NB meilleur"
+        metrics["comparison_nb_vs_yolo_ocr"] = {
+            "nb_accuracy":   nb_acc,
+            "yolo_ocr_wer":  metrics["mean_wer"],
+            "improvement":   better,
+            "nb_limitation": (
+                "NB classe des caractères pré-segmentés, "
+                "inutilisable sans détection préalable"
+            ),
+        }
+
+    # ── Sauvegarde + affichage ────────────────────────────────────────────
+    report_dir = Path(report_dir)
+    report_dir.mkdir(parents=True, exist_ok=True)
+    out_path = report_dir / "yolo_ocr_evaluation.json"
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(metrics, f, indent=2, ensure_ascii=False)
+
+    print("\n" + "═" * 58)
+    print("  ÉVALUATION PIPELINE YOLO+OCR — PlateVision MINT/DGI")
+    print("═" * 58)
+    print(f"  Images testées     : {metrics['n_images_tested']}")
+    print(f"  Détections OK      : {metrics['n_detections_ok']}  "
+          f"({metrics['detection_rate']:.1%})")
+    print(f"  CER moyen          : {metrics['mean_cer']:.4f}")
+    print(f"  WER moyen          : {metrics['mean_wer']:.4f}")
+    print(f"  Conf. OCR moyenne  : {metrics['mean_ocr_conf']:.4f}")
+    print(f"  Lectures parfaites : {metrics['perfect_reads']}  "
+          f"({metrics['perfect_read_rate']:.1%})")
+    print("═" * 58 + "\n")
+
+    return metrics
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 12. PIPELINE COMPLET PARTIE 2 + DÉMO JURY
+# ══════════════════════════════════════════════════════════════════════════════
+
+def run_full_pipeline(image_path: "str | None" = None,
+                      weights_path: "Path | None" = None) -> dict:
+    """
+    Pipeline bout-en-bout pour une image unique (démo jury §5) :
+    detect_plate → deskew → read_plate_ocr → affichage formaté.
+    Si image_path=None, utilise la première image de test disponible.
+    """
+    if image_path is None:
+        test_dir = Path("data/processed/yolo/images/test")
+        candidates = sorted(test_dir.glob("*.jpg")) if test_dir.exists() else []
+        if not candidates:
+            raise FileNotFoundError("Aucune image de test trouvée dans data/processed/yolo/images/test/")
+        image_path = str(candidates[0])
+
+    import easyocr
+    try:
+        import torch
+        gpu = torch.cuda.is_available()
+    except ImportError:
+        gpu = False
+    reader = easyocr.Reader(["en"], gpu=gpu)
+
+    det = detect_plate(image_path, weights_path=weights_path, save_annotated=True)  # type: ignore[arg-type]
+    output_detections = []
+
+    for d in det["detections"]:
+        crop = deskew_plate_crop(d["crop"])
+        ocr_res = read_plate_ocr(crop, reader=reader)
+        entry = {
+            "bbox":       d["bbox"],
+            "yolo_conf":  d["confidence"],
+            "plate_text": ocr_res["plate_text"],
+            "ocr_conf":   ocr_res["confidence"],
+        }
+        output_detections.append(entry)
+        print(f"Plaque détectée : {ocr_res['plate_text']} "
+              f"(conf YOLO: {d['confidence']:.2f}, conf OCR: {ocr_res['confidence']:.2f})")
+
+    if not output_detections:
+        print("Aucune plaque détectée.")
+
+    return {"image_path": image_path, "detections": output_detections}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # POINT D'ENTRÉE CLI
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -412,7 +725,7 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    parser = argparse.ArgumentParser(description="PlateVision A2 — Détection YOLOv8n")
+    parser = argparse.ArgumentParser(description="PlateVision A2 — Détection YOLOv8n + OCR")
     parser.add_argument("--train",    action="store_true", help="Lance le pipeline d'entraînement")
     parser.add_argument("--epochs",   type=int, default=50, help="Nombre d'epochs (défaut 50)")
     parser.add_argument("--batch",    type=int, default=16, help="Taille du batch (défaut 16)")
@@ -421,6 +734,10 @@ if __name__ == "__main__":
     parser.add_argument("--detect",   type=str, default=None, metavar="IMAGE_PATH",
                         help="Inférence sur une image")
     parser.add_argument("--curves",   action="store_true", help="Régénère les courbes")
+    parser.add_argument("--ocr",      type=str, default=None, metavar="IMAGE_PATH",
+                        help="Pipeline complet YOLO+OCR sur une image (démo jury)")
+    parser.add_argument("--eval-ocr", action="store_true",
+                        help="Évalue le pipeline complet YOLO+OCR (CER, WER) sur le jeu de test")
     args = parser.parse_args()
 
     if args.train:
@@ -439,6 +756,22 @@ if __name__ == "__main__":
 
     elif args.curves:
         plot_training_curves()
+
+    elif args.ocr:
+        result = run_full_pipeline(image_path=args.ocr)
+        for d in result["detections"]:
+            print(f"Plaque : {d['plate_text']}  "
+                  f"(YOLO: {d['yolo_conf']:.2f}, OCR: {d['ocr_conf']:.2f})")
+
+    elif args.eval_ocr:
+        metrics = evaluate_full_pipeline()
+        print(json.dumps(
+            {k: v for k, v in metrics.items() if k != "comparison_nb_vs_yolo_ocr"},
+            indent=2))
+        if "comparison_nb_vs_yolo_ocr" in metrics:
+            print("\n[Comparaison NB vs YOLO+OCR]")
+            print(json.dumps(metrics["comparison_nb_vs_yolo_ocr"], indent=2,
+                             ensure_ascii=False))
 
     else:
         parser.print_help()
