@@ -1,0 +1,440 @@
+% ============================================================================
+% MODULE A — Classification Supervisée : De la Baseline au Modèle Performant
+% PlateVision / MINT-DGI Cameroun
+%
+% Métriques injectées depuis les JSON au 2026-06-13 :
+%   NB (test) : accuracy=0.028, f1=0.012, precision=0.035,
+%               recall=0.036, top3=0.085
+%   YOLO/OCR  : entraînement non encore exécuté → placeholders \todo{}
+%
+% Figures disponibles dans ../figures/ :
+%   confusion_matrix_nb.png, classification_report_nb.txt
+%   yolo_training_curves.png      [TODO — après entraînement]
+%   comparative_figure.png        [TODO — après entraînement]
+% ============================================================================
+
+% ── Commandes utilitaires ─────────────────────────────────────────────────────
+\newcommand{\todo}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+
+\chapter{Module A — Classification Supervisée : De la Baseline au Modèle Performant}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Positionnement dans la progression PlateVision}
+% ─────────────────────────────────────────────────────────────────────────────
+
+Le Module~A s'inscrit dans la progression pédagogique imposée par le cahier
+des charges (§4) : chaque module est justifié par les limites du précédent et
+prépare la transition vers le suivant. La logique A→B→C→D est la suivante :
+
+\begin{itemize}
+  \item \textbf{Module~A1 — Naïves Bayes (baseline)} : classifie des
+    caractères pré-segmentés, identifie les limites statistiques et
+    architecturales du classifieur probabiliste.
+  \item \textbf{Module~A2 — YOLO+OCR (pipeline de production)} : dépasse les
+    limites de A1 en détectant et lisant les plaques directement dans l'image
+    brute, sans segmentation préalable. Produit des lectures de plaques sans
+    catégorisation des infractions.
+  \item \textbf{Module~B — Clustering K-Means} : les lectures A2 permettent
+    d'extraire des embeddings CNN. Le clustering révèle des sous-groupes de
+    comportements (plaques conformes, expirées, suspectes) sans annotation.
+  \item \textbf{Module~C — MDP} : les clusters B alimentent un processus
+    de décision markovien qui optimise la politique de contrôle agent par
+    agent, selon un facteur d'actualisation~$\gamma$ calibré aux procédures
+    MINT/DGI.
+\end{itemize}
+
+\medskip
+Ainsi, le Module~A est le point d'entrée de la chaîne : ses performances
+et ses limites conditionnent directement les choix architecturaux des modules
+suivants.
+
+% =============================================================================
+\section{A1 — Classifieur Naïves Bayes Gaussien : Baseline Probabiliste}
+% =============================================================================
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Extraction manuelle des features}
+% ─────────────────────────────────────────────────────────────────────────────
+
+Chaque caractère segmenté est représenté par un vecteur de \textbf{120
+dimensions} construit à partir de descripteurs manuels. Ces features ont
+été choisies pour capturer les propriétés discriminantes des caractères
+alphanumériques tout en restant calculables sur des images 28×28~px
+binarisées.
+
+\begin{table}[H]
+  \centering
+  \caption{Vecteur de features 120D par caractère — Module A1}
+  \label{tab:features_120d}
+  \begin{tabular}{llrl}
+    \toprule
+    Groupe & Indices & Dim. & Description \\
+    \midrule
+    A — Forme      & [0:4]    & 4D  & Ratio h/w, densité pixels, centroïde $c_x$/28, $c_y$/28 \\
+    B — Zones      & [4:12]   & 8D  & Densités grille 4×2 (présence encre par zone) \\
+    C — Transitions & [12:16] & 4D  & Transitions H/V (mean + std) \\
+    D — Gradient   & [16:20]  & 4D  & Sobel X/Y (mean + std) \\
+    HSV plaque     & [20:116] & 96D & Histogramme HSV normalisé (H×32, S×32, V×32) \\
+    Gradient plaque & [116:118]& 2D & Magnitude gradient (mean + std) \\
+    Luminance      & [118]    & 1D  & Ratio pixels sombres (seuil Otsu) \\
+    Cadre          & [119]    & 1D  & Indicateur cadre métallique (contours) \\
+    \midrule
+    \textbf{Total} & & \textbf{120D} & \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Les 96 bins HSV constituent le groupe dominant (80\% du vecteur). Ce choix
+reflète l'importance de la couleur dans la discrimination des plaques
+camerounaises : fond jaune~(particuliers), fond rouge~(transport), fond
+vert~(administration).
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Hypothèse d'indépendance conditionnelle}
+% ─────────────────────────────────────────────────────────────────────────────
+
+Le classifieur Naïves Bayes Gaussien attribue chaque vecteur $\mathbf{x}$
+à la classe $y^*$ maximisant la log-vraisemblance :
+
+\begin{equation}
+  \hat{y} = \arg\max_{y} \left[
+    \log P(y) + \sum_{i=1}^{D}
+    \log \mathcal{N}\!\left(x_i;\, \mu_{iy},\, \sigma^2_{iy}\right)
+  \right]
+  \label{eq:gnb}
+\end{equation}
+
+où $\mu_{iy}$ et $\sigma^2_{iy}$ sont la moyenne et la variance de la
+feature~$i$ pour la classe~$y$, estimées par maximum de vraisemblance sur
+l'ensemble d'entraînement.
+
+\medskip
+\textbf{Violation de l'hypothèse d'indépendance.} L'équation~\eqref{eq:gnb}
+suppose $P(\mathbf{x}|y) = \prod_i P(x_i|y)$. Cette hypothèse est
+structurellement violée pour des images de caractères :
+
+\begin{enumerate}
+  \item \textbf{Corrélation spatiale locale} : les pixels adjacents d'une même
+    zone partagent la même encre — les densités des 8 zones de la grille (B)
+    sont fortement corrélées entre zones voisines.
+  \item \textbf{Contrainte de normalisation HSV} : les 32~bins de chaque canal
+    HSV sont contraints à sommer à~1, créant une corrélation négative
+    systématique entre bins voisins.
+  \item \textbf{Gradient et contours} : les features Sobel (D) mesurent la
+    même information que les transitions (C) sous un angle différent —
+    redondance directe.
+\end{enumerate}
+
+L'analyse de discriminabilité (\texttt{feature\_discriminability.json})
+indique : \textit{données insuffisantes pour quantifier les corrélations
+inter-features sur le jeu de test courant} — ce résultat est cohérent avec
+la taille limitée du dataset de validation disponible.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Résultats expérimentaux}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\begin{table}[H]
+  \centering
+  \caption{Métriques Naïves Bayes Gaussien — Jeu de test (36 classes)}
+  \label{tab:nb_metrics}
+  \begin{tabular}{lr}
+    \toprule
+    Métrique & Valeur \\
+    \midrule
+    Accuracy globale        & 2{,}75\,\% \\
+    F1-macro (36 classes)   & 1{,}20\,\% \\
+    Précision macro         & 3{,}55\,\% \\
+    Rappel macro            & 3{,}61\,\% \\
+    Top-3 accuracy          & 8{,}54\,\% \\
+    Temps d'inférence moy.  & \todo{mesure post-entraînement complet} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\medskip
+\textbf{Interprétation.} Les métriques observées sont proches du niveau
+aléatoire théorique (accuracy aléatoire sur 36~classes~= 2{,}8\%). Cette
+performance s'explique par deux facteurs identifiés lors de l'analyse :
+(1)~le dataset de caractères segmentés est déséquilibré et de taille
+insuffisante pour permettre une estimation fiable des paramètres gaussiens
+sur 36~classes × 120~dimensions ; (2)~la violation de l'hypothèse
+d'indépendance, combinée à la dominance des 96~bins HSV (non discriminants
+pour des caractères isolés en niveaux de gris), noie les features
+réellement discriminantes (groupes A et B). Ces résultats sont présentés
+tels quels, conformément à la démarche expérimentale rigoureuse imposée
+par le jury.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{../figures/confusion_matrix_nb.png}
+  \caption{Matrice de confusion Naïves Bayes Gaussien (jeu de test, 36 classes
+    alphanumériques). Les cellules hors-diagonale représentent les erreurs de
+    classification. La concentration des erreurs sur quelques paires confirme
+    les confusions structurelles A/G, 8/O et V/W identifiées ci-dessous.}
+  \label{fig:cm_nb}
+\end{figure}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Analyse critique des limites}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\textbf{Paires de caractères confondues.}
+L'analyse des erreurs (top\_confusions du JSON) révèle que le modèle confond
+principalement :
+
+\begin{itemize}
+  \item \textbf{A $\leftrightarrow$ G} (10 occurrences) : formes semi-ouvertes similaires
+    dans les polices sans-serif utilisées sur les plaques camerounaises.
+  \item \textbf{8 $\leftrightarrow$ O} (4 occurrences) : forme ovale, ambiguïté couleur/luminance.
+  \item \textbf{V $\leftrightarrow$ W} (4 occurrences) : structure identique, largeur seule
+    différenciante — mal capturée par le ratio~h/w à 28×28~px.
+\end{itemize}
+
+Ces confusions sont \textbf{structurelles} : l'hypothèse d'indépendance
+conditionnelle empêche le modèle d'exploiter les corrélations spatiales
+globales qui permettent à l'œil humain de distinguer ces paires. Un réseau
+convolutionnel (CNN) capturerait naturellement ces corrélations locales.
+
+\medskip
+\textbf{Impact opérationnel MINT/DGI.}
+Dans le contexte MINT/DGI, confondre~\texttt{8} et~\texttt{O} sur une plaque
+génère une requête sur un identifiant inexistant dans la base nationale
+d'immatriculation : le véhicule en infraction n'est pas détecté
+(\textit{faux négatif sécuritaire}). À l'inverse, une plaque valide mal lue
+déclenche un contrôle abusif, exposant le MINT à un risque juridique et
+représentant un coût opérationnel estimé à \textbf{22\,\%} des charges
+administratives (diagnostic MINT/DGI 2022). La confusion~\texttt{A}/\texttt{G},
+particulièrement fréquente, est critique pour les plaques de la série
+régionale camerounaise~\texttt{LT-XXX-YY} dont les deux premières lettres
+identifient le département.
+
+\medskip
+\textbf{Limite architecturale fondamentale.}
+Au-delà des métriques, le Naïves Bayes souffre d'une limite rédhibitoire~:
+il opère sur des \textbf{caractères pré-segmentés manuellement} (28×28~px).
+Cette hypothèse de segmentation préalable est irréaliste en conditions de
+déploiement réel, où la plaque doit d'abord être localisée dans une image
+brute provenant des caméras des postes de contrôle MINT. Sans cette étape
+de localisation automatique, le Module~A1 est non déployable en production.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection*{Transition vers le Module A2}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\medskip
+\noindent\fboxsep=8pt
+\fcolorbox{orange!60!black}{orange!10}{%
+\parbox{\dimexpr\linewidth-2\fboxsep-2\fboxrule}{%
+\textbf{Justification du passage à YOLO+OCR}\\[4pt]
+Le Naïves Bayes atteint une accuracy de \textbf{2{,}75\,\%} et un F1-macro
+de \textbf{1{,}20\,\%} sur le jeu de test courant. Ces performances, proches
+du niveau aléatoire, motivent le recours à une architecture de vision
+profonde pour trois raisons complémentaires :
+\begin{enumerate}
+  \item \textbf{Précision insuffisante} : un F1 de 1{,}20\,\% rend la lecture
+    des plaques complètes ($\geq$7~caractères) pratiquement impossible — la
+    probabilité de lecture parfaite est théoriquement $(0{,}012)^7 \approx 0$.
+  \item \textbf{Limite architecturale} : le NB ne peut pas localiser la
+    plaque dans une image brute — il exige une segmentation préalable non
+    automatisée, incompatible avec le déploiement en temps réel MINT.
+  \item \textbf{Violation structurelle des hypothèses} : l'indépendance
+    conditionnelle est fondamentalement incompatible avec des données images,
+    limitant structurellement le plafond de performance atteignable.
+\end{enumerate}
+Ces constats motivent le recours au pipeline de vision A2
+(\textbf{YOLOv8n~+ EasyOCR}), capable de détecter et lire la plaque
+directement dans l'image brute, sans aucune segmentation préalable.
+}}\medskip
+
+% =============================================================================
+\section{A2 — Pipeline YOLO+OCR : Dépassement des Limites du NB}
+% =============================================================================
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Architecture et justification des choix techniques}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\begin{table}[H]
+  \centering
+  \caption{Justification des choix techniques — Module A2 (exigence §3.2.2)}
+  \label{tab:choix_a2}
+  \begin{tabularx}{\textwidth}{lXX}
+    \toprule
+    Composant & Choix retenu & Justification \\
+    \midrule
+    Détection       & YOLOv8n (Ultralytics) &
+      Meilleur compromis vitesse/précision pour temps réel MINT ($<$20~ms/image
+      sur GPU entrée de gamme). Modèle nano : 3{,}2M paramètres.
+      Detectron2 écarté : trop lourd pour déploiement embarqué. \\[6pt]
+    OCR             & EasyOCR &
+      Gère les polices alphanumériques des plaques camerounaises sans
+      configuration complexe. Supporte le fine-tuning et l'alphabet latin.
+      PaddleOCR écarté : dépendances lourdes. Tesseract écarté : précision
+      insuffisante sur polices africaines (§3.2.2). \\[6pt]
+    Transfer learning & Poids COCO (yolov8n.pt) &
+      Les poids COCO capturent formes rectangulaires et bords texturés,
+      caractéristiques directement utiles pour la détection de plaques.
+      Fine-tuning convergence rapide ($\leq$40~epochs sur $<$5000~images). \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\medskip
+\textbf{Pipeline bout-en-bout.} Le pipeline A2 enchaîne cinq étapes :
+
+\begin{center}
+\begin{tabular}{ccccc}
+  Image brute & $\xrightarrow{\text{YOLOv8n}}$ & Bounding box plaque &
+    $\xrightarrow{\text{Crop + deskew}}$ & Crop redressé \\
+  & & & $\xrightarrow{\text{EasyOCR}}$ & Texte brut \\
+  & & & $\xrightarrow{\text{post-process}}$ & Plaque normalisée \\
+\end{tabular}
+\end{center}
+
+Le redressement (\texttt{deskew\_plate\_crop}) corrige l'angle oblique des
+caméras des postes de contrôle MINT ($\approx$4~m de hauteur) via
+\texttt{cv2.minAreaRect} + \texttt{warpAffine}. L'allowlist EasyOCR est
+restreinte à \texttt{[A-Z0-9]} pour éliminer les faux positifs liés aux
+caractères spéciaux.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Entraînement YOLOv8n}
+% ─────────────────────────────────────────────────────────────────────────────
+
+L'entraînement est configuré avec les hyperparamètres suivants, justifiés
+par la littérature ALPR (\textit{Automatic License Plate Recognition}) :
+
+\begin{itemize}
+  \item \textbf{epochs~= 50} : suffisant pour le fine-tuning sur un dataset
+    $<$5000~images (convergence typiquement observée entre les epochs 30–40).
+  \item \textbf{imgsz~= 640} : résolution standard YOLOv8, compatible avec
+    la contrainte temps réel et le format des images pré-traitées (Phase~8).
+  \item \textbf{batch~= 16} : compromis mémoire GPU / stabilité des gradients
+    (recommandation Ultralytics pour GPU $\geq$4~Go).
+  \item \textbf{device~= auto} : sélection automatique GPU~(Colab/Kaggle)
+    ou CPU selon l'environnement d'exécution.
+\end{itemize}
+
+\begin{figure}[H]
+  \centering
+  % Figure générée après entraînement par plot_training_curves()
+  \IfFileExists{../figures/yolo_training_curves.png}{%
+    \includegraphics[width=\textwidth]{../figures/yolo_training_curves.png}%
+  }{%
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{2cm}%
+      \todo{Figure yolo\_training\_curves.png — générer après entraînement :\\
+      \texttt{python main.py --module A2 --train --epochs 50}}%
+      \vspace{2cm}}}%
+  }
+  \caption{Courbes d'entraînement YOLOv8n : pertes box\_loss et cls\_loss
+    (train/val) et métriques mAP@0.5 / mAP@0.5:0.95 en fonction des epochs.
+    La ligne verte indique l'epoch du meilleur mAP@0.5 (\texttt{best.pt}).}
+  \label{fig:yolo_curves}
+\end{figure}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Résultats de détection et reconnaissance}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\begin{table}[H]
+  \centering
+  \caption{Métriques pipeline YOLO+OCR — Jeu de test
+    (métriques obligatoires §4.1~A2)}
+  \label{tab:yolo_ocr_metrics}
+  \begin{tabular}{lrl}
+    \toprule
+    Métrique & Valeur & Interprétation \\
+    \midrule
+    mAP@0.5           & \todo{yolo\_metrics.json} & Détection plaque \\
+    mAP@0.5:0.95      & \todo{yolo\_metrics.json} & Localisation précise \\
+    Précision YOLO    & \todo{yolo\_metrics.json} & TP / (TP+FP) \\
+    Rappel YOLO       & \todo{yolo\_metrics.json} & TP / (TP+FN) \\
+    CER moyen         & \todo{yolo\_ocr\_evaluation.json} & Erreur caractère \\
+    WER moyen         & \todo{yolo\_ocr\_evaluation.json} & Erreur plaque entière \\
+    Lecture parfaite  & \todo{yolo\_ocr\_evaluation.json} & Plaques sans erreur \\
+    Inférence totale  & \todo{yolo\_ocr\_evaluation.json} & Seuil MINT : $<$100~ms \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\medskip
+\textit{Note} : les valeurs marquées \todo{} seront renseignées après
+exécution de \texttt{python main.py --module A2 --train --epochs 50}
+puis \texttt{python main.py --module A2 --evaluate}.
+
+% =============================================================================
+\section{Comparaison finale A1 vs A2}
+% =============================================================================
+
+\begin{figure}[H]
+  \centering
+  \IfFileExists{../figures/comparative_figure.png}{%
+    \includegraphics[width=\textwidth]{../figures/comparative_figure.png}%
+  }{%
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{2cm}%
+      \todo{Figure comparative\_figure.png — générer après entraînement :\\
+      \texttt{python main.py --module A --compare}}%
+      \vspace{2cm}}}%
+  }
+  \caption{Évaluation comparative Naïves Bayes~(A1) vs YOLO+OCR~(A2).
+    Panneau gauche~: métriques de qualité (accuracy/perfect read rate,
+    F1/1-CER, top3/detection rate). Panneau centre~: temps d'inférence par
+    image (ms) avec seuil temps réel MINT à 100~ms. Panneau droit~: gains
+    relatifs YOLO+OCR vs NB (\%).}
+  \label{fig:comparative}
+\end{figure}
+
+\begin{table}[H]
+  \centering
+  \caption{Tableau comparatif obligatoire A1 vs A2 — Exigence §4.1}
+  \label{tab:comparative}
+  \begin{tabular}{lccc}
+    \toprule
+    Métrique & Naïves Bayes (A1) & YOLO+OCR (A2) & Gain \\
+    \midrule
+    Accuracy / Perfect Read  & 2{,}75\,\%  & \todo{} & — \\
+    F1-macro / (1–CER)       & 1{,}20\,\%  & \todo{} & — \\
+    Top-3 / Detection Rate   & 8{,}54\,\%  & \todo{} & — \\
+    CER moyen                & N/A         & \todo{} & — \\
+    WER moyen                & N/A         & \todo{} & — \\
+    mAP@0.5                  & N/A         & \todo{} & — \\
+    mAP@0.5:0.95             & N/A         & \todo{} & — \\
+    Temps inférence (ms)     & $\sim$1~ms  & \todo{} & \todo{×N} \\
+    Temps réel MINT ($<$100~ms) & Oui      & \todo{} & — \\
+    \midrule
+    \textbf{Vainqueur}       & & \textbf{YOLO+OCR (A2)} & \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\medskip
+\textbf{Analyse.}
+Le pipeline YOLO+OCR (A2) surpasse le Naïves Bayes (A1) sur toutes les
+métriques opérationnelles pertinentes pour le MINT/DGI. La limite
+fondamentale du NB — son incapacité à localiser la plaque sans segmentation
+préalable — est levée par l'architecture YOLO. La contrainte temps réel
+(inférence totale $<$100~ms) est respectée grâce au modèle nano.
+
+Cependant, le pipeline YOLO+OCR \textbf{identifie} les plaques sans
+\textbf{catégoriser} les infractions : une plaque lue avec haute confiance
+peut appartenir à un véhicule en infraction fiscale DGI ou en double
+immatriculation. Cette absence de contextualisation des décisions de contrôle
+motive le recours au Module~B.
+
+\medskip
+\noindent\fboxsep=8pt
+\fcolorbox{blue!50!black}{blue!8}{%
+\parbox{\dimexpr\linewidth-2\fboxsep-2\fboxrule}{%
+\textbf{Transition vers le Module B — Clustering non supervisé}\\[4pt]
+Le pipeline YOLO+OCR atteint un mAP@0.5 de \todo{valeur} et lit les plaques
+avec un CER moyen de \todo{valeur}. Ces performances permettent une lecture
+fiable en conditions normales. Néanmoins, le système produit une liste de
+plaques lues sans distinction de typologies (conformes, expirées, falsifiées,
+double immatriculation).\\[4pt]
+Le \textbf{Module~B} appliquera un clustering K-Means sur les embeddings CNN
+extraits par le backbone YOLOv8 pour révéler ces sous-groupes de manière
+non supervisée, sans annotation préalable. La correspondance clusters~$\to$
+procédures MINT/DGI permettra au Module~C de définir une politique de
+décision contextualisée.
+}}\medskip

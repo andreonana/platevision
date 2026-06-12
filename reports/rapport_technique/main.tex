@@ -1,0 +1,159 @@
+\documentclass[12pt, a4paper]{report}
+
+% ── Encodage et langue ────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+% babel-french non installé sur cet environnement — installer via :
+% sudo apt install texlive-lang-french
+% \usepackage[french]{babel}
+
+% ── Mise en page ──────────────────────────────────────────────────────────────
+\usepackage{geometry}
+\geometry{
+  a4paper,
+  left=2.5cm, right=2.5cm,
+  top=2.5cm, bottom=2.5cm
+}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{PlateVision — MINT/DGI Cameroun}
+\lhead{\leftmark}
+\cfoot{\thepage}
+\setlength{\headheight}{14pt}
+
+% ── Graphiques ────────────────────────────────────────────────────────────────
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\graphicspath{{./figures/}}
+
+% ── Tableaux ──────────────────────────────────────────────────────────────────
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{array}
+% \usepackage{multirow}   % non installé — sudo apt install texlive-latex-extra
+
+% ── Mathématiques ─────────────────────────────────────────────────────────────
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+% ── Boîtes colorées (transitions narratives) ─────────────────────────────────
+% tcolorbox non installé — émulation via xcolor + minipage
+% sudo apt install texlive-latex-extra pour tcolorbox complet
+
+% ── Code source ───────────────────────────────────────────────────────────────
+\usepackage{listings}
+\usepackage{xcolor}
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{gray!8},
+  keywordstyle=\color{blue!70},
+  commentstyle=\color{green!50!black},
+  stringstyle=\color{red!60},
+}
+
+% ── Hyperliens PDF ────────────────────────────────────────────────────────────
+\usepackage{hyperref}
+\hypersetup{
+  pdftitle   = {Rapport Technique --- PlateVision MINT/DGI},
+  pdfauthor  = {Équipe PlateVision --- UCAC-ICAM / ULC-ICAM},
+  colorlinks = true,
+  linkcolor  = blue!70!black,
+  citecolor  = blue!70!black,
+  urlcolor   = blue!70!black,
+}
+
+% ── Commandes utilitaires ─────────────────────────────────────────────────────
+\newcommand{\placeholder}[1]{%
+  \textcolor{red!70!black}{\textbf{[À COMPLÉTER : #1]}}}
+
+% ── Flèches pour schémas textuels ────────────────────────────────────────────
+\newcommand{\pvarrow}[1]{\ensuremath{\stackrel{#1}{\longrightarrow}}}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{document}
+
+% ── Page de titre ─────────────────────────────────────────────────────────────
+\begin{titlepage}
+  \centering
+  \vspace*{1.5cm}
+
+  {\Huge \textbf{PlateVision}}\\[0.6em]
+  {\Large Système Intelligent de Reconnaissance Automatique\\[0.2em]
+   des Plaques d'Immatriculation}\\[2em]
+
+  \rule{0.75\textwidth}{0.5pt}\\[1.5em]
+
+  {\large \textbf{Rapport Technique Intégré}}\\[0.4em]
+  {\large Livrable~L3 — Modules A → D}\\[2em]
+
+  {\large \textbf{MINT} — Ministère des Postes et Télécommunications}\\[0.3em]
+  {\large \textbf{DGI} — Direction Générale des Impôts}\\[0.3em]
+  {\normalsize Cameroun — PSTNAC 2023–2028}\\[2.5em]
+
+  \rule{0.75\textwidth}{0.5pt}\\[1.5em]
+
+  {\large \textbf{Équipe PlateVision}}\\[0.5em]
+  \begin{tabular}{ll}
+    NKE GOUETH  & Chef de projet, Module A1 (Naïves Bayes) \\
+    ELIE NJOCK  & Module A2 (YOLO + OCR) \\
+    ALI YOUSSOUF & Module B (Clustering) \\
+    FOUDA BASILE & Module C (MDP) \\
+    NAPANI MAËL & Module D + coordination \\
+  \end{tabular}\\[2em]
+
+  {\normalsize UCAC-ICAM / ULC-ICAM — 3\textsuperscript{e} année Cycle Ingénieur}\\[0.8em]
+  {\normalsize \today}
+
+  \vfill
+  {\small Document académique — Usage pédagogique — Confidentiel}
+\end{titlepage}
+
+% ── Tables ────────────────────────────────────────────────────────────────────
+\tableofcontents
+\newpage
+\listoffigures
+\listoftables
+\newpage
+
+% ── Introduction générale ─────────────────────────────────────────────────────
+\chapter*{Introduction}
+\addcontentsline{toc}{chapter}{Introduction}
+
+PlateVision est un système de reconnaissance automatique des plaques
+d'immatriculation développé dans le cadre de la \textbf{Politique
+Sectorielle des Technologies Numériques et de l'Administration en Ligne
+du Cameroun (PSTNAC 2023–2028)}, portée par le \textbf{Ministère des
+Postes et Télécommunications (MINT)} et la \textbf{Direction Générale
+des Impôts (DGI)}.
+
+L'objectif est de doter les services publics camerounais d'un système
+capable de détecter automatiquement les plaques, reconnaître les caractères
+par OCR, classifier les véhicules selon les procédures MINT/DGI, et
+optimiser les flux de contrôle grâce à un modèle de décision séquentielle.
+
+Ce rapport présente les quatre modules du système dans une progression
+narrative cohérente, chaque module étant justifié par les limites du
+précédent, conformément à l'exigence §7.1 du cahier des charges.
+
+% ── Modules ───────────────────────────────────────────────────────────────────
+\input{module_a}
+
+% \input{module_b}   % À décommenter quand module_b.tex disponible
+% \input{module_c}   % À décommenter quand module_c.tex disponible
+% \input{module_d}   % À décommenter quand module_d.tex disponible
+
+% ── Conclusion générale ───────────────────────────────────────────────────────
+\chapter*{Conclusion}
+\addcontentsline{toc}{chapter}{Conclusion}
+
+\placeholder{Rédiger après intégration complète des modules B, C et D.
+Synthétiser les performances finales, l'adéquation au cahier des charges
+MINT/DGI et les perspectives de déploiement PSTNAC 2023--2028.}
+
+\end{document}
