@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 DATA_DIR   = Path("data/processed")
 MODEL_DIR  = Path("models/weights")
-REPORT_DIR = Path("reports/figures")
+REPORT_DIR = Path("reports/rapport_technique/figures")
 N_CLASSES  = 36
 N_FEATURES = 120
 
@@ -200,6 +200,141 @@ def analyze_errors(model, scaler, X_test, y_test, class_names) -> dict:
                     true_name, pred_name, count)
 
     return {"top_confusions": top_confusions}
+
+
+def generate_pedagogical_report(model, scaler, X_test, y_test,
+                                  class_names,
+                                  report_dir: Path = REPORT_DIR) -> None:
+    """
+    Génère le rapport pédagogique obligatoire du Module A1.
+    Répond aux 3 questions jury §4.1 par du code, pas seulement par du texte.
+    Sauvegarde : report_dir/naive_bayes_pedagogical_report.txt
+    """
+    report_dir.mkdir(parents=True, exist_ok=True)
+    char_to_idx = {c: i for i, c in enumerate(class_names)}
+    n_feats = X_test.shape[1]
+
+    X_scaled = scaler.transform(X_test)
+    y_pred   = model.predict(X_scaled)
+    cm = confusion_matrix(y_test, y_pred, labels=np.arange(len(class_names)))
+
+    sep   = "═" * 54
+    lines = [sep, "RAPPORT PÉDAGOGIQUE — Module A1 Naïves Bayes", sep, ""]
+
+    # ── Section 1 : paires les plus confondues ────────────────────────────────
+    lines += [f"{'═'*54}", "SECTION 1 — Paires de caractères les plus confondues",
+              f"{'═'*54}", ""]
+
+    CRITICAL = [("0", "O"), ("1", "I"), ("8", "B"), ("5", "S"), ("6", "G")]
+    critical_set = {frozenset(p) for p in CRITICAL}
+
+    cm_nodiag = cm.copy()
+    np.fill_diagonal(cm_nodiag, 0)
+
+    # Toutes les paires non-nulles, triées par total décroissant
+    pair_counts = {}
+    for i in range(len(class_names)):
+        for j in range(i + 1, len(class_names)):
+            total = int(cm_nodiag[i, j]) + int(cm_nodiag[j, i])
+            if total > 0:
+                pair_counts[(i, j)] = total
+
+    sorted_pairs = sorted(pair_counts.items(), key=lambda x: x[1], reverse=True)
+
+    lines.append("Top-15 paires les plus confondues :")
+    for (i, j), total in sorted_pairs[:15]:
+        c1, c2   = class_names[i], class_names[j]
+        n12      = int(cm_nodiag[i, j])
+        n21      = int(cm_nodiag[j, i])
+        critical = "  [CRITIQUE MINT/DGI]" if frozenset((c1, c2)) in critical_set else ""
+        lines.append(f"  • '{c1}' → '{c2}' : {n12} fois | '{c2}' → '{c1}' : {n21} fois{critical}")
+    lines.append("")
+
+    lines.append("Détail paires critiques MINT/DGI :")
+    for c1, c2 in CRITICAL:
+        if c1 not in char_to_idx or c2 not in char_to_idx:
+            lines.append(f"  • '{c1}' / '{c2}' : données insuffisantes")
+            continue
+        i1, i2 = char_to_idx[c1], char_to_idx[c2]
+        n12    = int(cm[i1, i2])
+        n21    = int(cm[i2, i1])
+        lines.append(f"  • '{c1}' → '{c2}' : {n12} fois | '{c2}' → '{c1}' : {n21} fois")
+    lines.append("")
+
+    # ── Section 2 : violation indépendance conditionnelle ─────────────────────
+    lines += [f"{'═'*54}",
+              "SECTION 2 — Pourquoi l'indépendance conditionnelle est violée",
+              f"{'═'*54}", ""]
+
+    corr    = np.corrcoef(X_scaled.T)
+    mask    = np.abs(corr) > 0.7
+    np.fill_diagonal(mask, False)
+    n_high  = int(mask.sum()) // 2
+
+    lines += [
+        f"Corrélation de Pearson calculée sur X_test ({X_scaled.shape[0]} samples, "
+        f"{n_feats} features).",
+        f"Paires de features avec |r| > 0.7 : {n_high} paires sur "
+        f"{n_feats * (n_feats - 1) // 2} possibles.",
+        "",
+        f"L'hypothèse Naïves Bayes suppose P(x1,...,x{n_feats}|y) = ∏P(xi|y).",
+        "Cette hypothèse est violée pour des images car :",
+        "  1. Les pixels adjacents d'une même zone partagent la même encre/couleur",
+        f"     → forte corrélation spatiale locale (mesurée : {n_high} paires |r|>0.7).",
+        "  2. Les 96 bins HSV sont contraints à sommer à 1.0 par canal",
+        "     → corrélation négative systématique entre bins voisins.",
+        "  3. Les densités zonales (groupe B) sont corrélées entre zones adjacentes.",
+        "Conséquence : GaussianNB sous-estime la probabilité des classes similaires",
+        "et surestime sa confiance, ce qui nuit à la discrimination 0/O et 1/I.",
+        "",
+    ]
+
+    # ── Section 3 : impact opérationnel MINT/DGI ─────────────────────────────
+    lines += [f"{'═'*54}", "SECTION 3 — Impact opérationnel MINT/DGI",
+              f"{'═'*54}", ""]
+
+    # Taux de confusion 0↔O
+    c_zero, c_O = "0", "O"
+    if c_zero in char_to_idx and c_O in char_to_idx:
+        i0, iO   = char_to_idx[c_zero], char_to_idx[c_O]
+        count_0O = int(cm[i0, iO]) + int(cm[iO, i0])
+        n_0O     = int((y_test == i0).sum()) + int((y_test == iO).sum())
+        taux     = count_0O / n_0O if n_0O > 0 else 0.0
+    else:
+        count_0O, taux = 0, 0.0
+
+    # Taux de confusion 1↔I
+    c_one, c_I = "1", "I"
+    if c_one in char_to_idx and c_I in char_to_idx:
+        i1, iI   = char_to_idx[c_one], char_to_idx[c_I]
+        count_1I = int(cm[i1, iI]) + int(cm[iI, i1])
+    else:
+        count_1I = 0
+
+    lines += [
+        f"Impact opérationnel — confusion '0'/'O' (MINT/DGI) :",
+        f"  Sur le jeu de test, le modèle a confondu '0' et 'O' {count_0O} fois.",
+        "  Dans le contexte MINT : une plaque lue 'AB123OC' au lieu de 'AB1230C'",
+        "  génère une requête sur une plaque inexistante dans la base nationale",
+        "  → le véhicule frauduleux n'est PAS détecté (faux négatif sécuritaire).",
+        "  Dans le contexte DGI : une plaque valide lue incorrectement déclenche",
+        "  une alerte injustifiée → contrôle abusif, contestation juridique,",
+        "  coût opérationnel (estimé à 22% des charges selon diagnostic MINT/DGI).",
+        f"  Taux de confusion 0↔O observé : {taux:.2%}",
+        "  Conclusion : ce taux est inacceptable pour un déploiement opérationnel",
+        "  → justifie le passage au pipeline A2 (YOLO + EasyOCR).",
+        "",
+        f"Confusion '1'/'I' observée : {count_1I} fois.",
+        "",
+    ]
+
+    lines.append(sep)
+
+    report_txt  = "\n".join(lines)
+    report_path = report_dir / "naive_bayes_pedagogical_report.txt"
+    report_path.write_text(report_txt, encoding="utf-8")
+    logger.info("Rapport pédagogique sauvegardé : %s", report_path)
+    print(report_txt)
 
 
 def analyze_ocr_alignment(model, scaler, data_dir: Path = DATA_DIR,
@@ -397,18 +532,16 @@ def run_full_pipeline(data_dir: Path = DATA_DIR,
     logger.info("=== Pipeline Naïves Bayes — démarrage ===")
 
     X_train, y_train, X_val, y_val, X_test, y_test, class_names = load_features(data_dir)
-    X_train_s, X_val_s, X_test_s, scaler = preprocess_features(X_train, X_val, X_test)
+    # preprocess_features normalise X_train_s pour l'entraînement ;
+    # evaluate_model et analyze_errors appellent scaler.transform() en interne
+    # → on leur passe X_val et X_test bruts pour éviter la double normalisation.
+    X_train_s, _, _, scaler = preprocess_features(X_train, X_val, X_test)
     model   = train_naive_bayes(X_train_s, y_train)
-    metrics = evaluate_model(model, scaler, X_val_s, y_val, X_test_s, y_test,
+    metrics = evaluate_model(model, scaler, X_val, y_val, X_test, y_test,
                              class_names, report_dir)
 
-    # Passer les données déjà normalisées — analyze_errors gère la transformation interne
-    # On recrée un scaler identité pour éviter une double normalisation
-    from sklearn.preprocessing import FunctionTransformer
-    identity = FunctionTransformer()
-    identity.fit(X_train_s)
-
-    errors = analyze_errors(model, identity, X_test_s, y_test, class_names)
+    errors = analyze_errors(model, scaler, X_test, y_test, class_names)
+    generate_pedagogical_report(model, scaler, X_test, y_test, class_names, report_dir)
     ocr    = analyze_ocr_alignment(model, scaler, data_dir, class_names)
 
     metrics["top_confusions"]    = errors.get("top_confusions", [])
@@ -464,11 +597,8 @@ if __name__ == "__main__":
     elif args.evaluate:
         model, scaler, _ = load_model()
         X_train, y_train, X_val, y_val, X_test, y_test, class_names = load_features()
-        _, X_val_s, X_test_s, _ = preprocess_features(X_train, X_val, X_test)
-        from sklearn.preprocessing import FunctionTransformer
-        identity = FunctionTransformer()
-        identity.fit(X_val_s)
-        metrics = evaluate_model(model, identity, X_val_s, y_val, X_test_s, y_test, class_names)
+        # evaluate_model appelle scaler.transform() en interne → données brutes
+        metrics = evaluate_model(model, scaler, X_val, y_val, X_test, y_test, class_names)
         print(json.dumps(metrics, indent=2))
 
     elif args.ocr_align:
