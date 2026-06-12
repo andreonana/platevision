@@ -542,19 +542,24 @@ def _generate_eda_grid(samples: list, bboxes: list, figures_dir: Path):
 # PHASE 3 — EXTRACTION DES RÉGIONS DE PLAQUES
 # ══════════════════════════════════════════════════════════════════════════════
 
-def extract_plate_regions(datasets_dict: dict, output_dir: Path) -> list:
+def extract_plate_regions(datasets_dict: dict, output_dir: Path) -> tuple:
     """
     Extrait et sauvegarde les recadrages de plaques depuis chaque image.
+    Sépare les deux sources dès cette phase.
 
     Entrée  : dictionnaire datasets, répertoire de sortie
-    Sortie  : liste de dicts {crop_path, plate_text, source, detection_method, ...}
-    Alimente : Phase 4 (segmentation caractères) + Module A2 (YOLOv8)
+    Sortie  : (crops_rf, crops_md) — deux listes de dicts indépendantes
+      - crops_rf : crops Roboflow → A1 segmentation/labellisation + A2 YOLO
+      - crops_md : crops Mendeley → A2 YOLO uniquement, sans labellisation chars
+    Alimente : Phase 4 OCR (rf seulement) · Phase 5 segmentation (rf) · A2 YOLO (rf+md)
     """
     crops_dir = Path(output_dir) / "plate_crops"
     crops_dir.mkdir(parents=True, exist_ok=True)
 
-    plate_crops = []
-    n_annotated = 0
+    plate_crops_rf = []   # Roboflow → pipeline A1 complet + YOLO A2
+    plate_crops_md = []   # Mendeley → YOLO A2 uniquement
+    n_rf = 0
+    n_md = 0
     n_heuristic = 0
     n_rejected = 0
     idx = 0
@@ -605,7 +610,7 @@ def extract_plate_regions(datasets_dict: dict, output_dir: Path) -> list:
                 crop_path = crops_dir / crop_filename
                 cv2.imwrite(str(crop_path), crop_resized)
 
-                plate_crops.append({
+                plate_crops_rf.append({
                     "crop_path": str(crop_path),
                     "plate_text": None,
                     "source": "roboflow",
@@ -614,7 +619,7 @@ def extract_plate_regions(datasets_dict: dict, output_dir: Path) -> list:
                     "blur_score": blur_score,
                 })
                 idx += 1
-                n_annotated += 1
+                n_rf += 1
 
         except Exception as e:
             logger.error(f"Phase 3 Roboflow {img_path.name} : {e}")
@@ -643,7 +648,7 @@ def extract_plate_regions(datasets_dict: dict, output_dir: Path) -> list:
             crop_path = crops_dir / crop_filename
             cv2.imwrite(str(crop_path), crop_resized)
 
-            plate_crops.append({
+            plate_crops_md.append({
                 "crop_path": str(crop_path),
                 "plate_text": None,
                 "source": "mendeley",
@@ -653,18 +658,18 @@ def extract_plate_regions(datasets_dict: dict, output_dir: Path) -> list:
                 "region": img_path.parent.name,
             })
             idx += 1
-            n_annotated += 1
+            n_md += 1
 
         except Exception as e:
             logger.error(f"Phase 3 Mendeley {img_path.name} : {e}")
             n_rejected += 1
 
     logger.info(
-        f"Phase 3 : {len(plate_crops)} crops extraits "
-        f"({n_annotated} annotés/directs, {n_heuristic} heuristiques, "
-        f"{n_rejected} rejetés)"
+        f"Phase 3 : {n_rf} crops Roboflow (→ A1 chars + A2 YOLO) + "
+        f"{n_md} crops Mendeley (→ A2 YOLO uniquement) | "
+        f"{n_rejected} rejetés"
     )
-    return plate_crops
+    return plate_crops_rf, plate_crops_md
 
 
 def _extract_crop(img: np.ndarray, x1: int, y1: int, x2: int, y2: int,
@@ -777,6 +782,72 @@ def _detect_plates_heuristic(img: np.ndarray, img_path: Path,
 # PHASE 3BIS — OCR SUR LES CROPS DE PLAQUES
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Longueur plausible d'une transcription de plaque (caractères alphanumériques)
+_PLATE_MIN_CHARS = 2
+_PLATE_MAX_CHARS = 8
+
+
+def _ocr_mendeley_crop(reader, img: np.ndarray) -> tuple:
+    """
+    OCR strict dédié aux crops Mendeley.
+
+    Logique :
+      1. Lecture EasyOCR → liste de (bbox, texte, confiance)
+      2. Nettoyage de chaque fragment : MAJUSCULES + alphanum uniquement
+      3. Confiance moyenne pondérée par la longueur de chaque fragment nettoyé
+         (évite qu'un long fragment peu fiable dilue un fragment court bien lu)
+      4. Filtre confiance : avg_conf >= 0.45
+      5. Filtre plausibilité : longueur totale ∈ [_PLATE_MIN_CHARS, _PLATE_MAX_CHARS]
+
+    Retourne : (plate_text: str | None, avg_conf: float)
+      - plate_text est None si l'une des conditions ci-dessus n'est pas remplie.
+      - avg_conf est toujours retourné (même quand plate_text est None) pour
+        permettre la journalisation des raisons du rejet.
+    """
+    try:
+        detections = reader.readtext(img)
+    except Exception as exc:
+        logger.debug(f"EasyOCR exception : {exc}")
+        return None, 0.0
+
+    if not detections:
+        return None, 0.0
+
+    # Nettoyage et pondération par longueur de fragment
+    cleaned_parts: list[str] = []
+    total_weight = 0.0
+    weighted_conf = 0.0
+
+    for (_bbox, text, conf) in detections:
+        fragment = re.sub(r"[^A-Z0-9]", "", text.upper())
+        if not fragment:
+            continue
+        w = len(fragment)
+        weighted_conf += conf * w
+        total_weight += w
+        cleaned_parts.append(fragment)
+
+    if total_weight == 0.0:
+        return None, 0.0
+
+    avg_conf = weighted_conf / total_weight
+    plate_text = "".join(cleaned_parts)
+
+    # Filtre confiance
+    if avg_conf < 0.45:
+        return None, float(avg_conf)
+
+    # Filtre plausibilité de longueur
+    if not (_PLATE_MIN_CHARS <= len(plate_text) <= _PLATE_MAX_CHARS):
+        logger.debug(
+            f"OCR Mendeley rejeté — longueur hors plage "
+            f"({len(plate_text)} chars, texte='{plate_text}', conf={avg_conf:.2f})"
+        )
+        return None, float(avg_conf)
+
+    return plate_text, float(avg_conf)
+
+
 def run_ocr_on_crops(plate_crops: list, output_dir: Path) -> list:
     """
     Phase 3bis — Reconnaissance OCR sur les crops de plaques.
@@ -790,13 +861,22 @@ def run_ocr_on_crops(plate_crops: list, output_dir: Path) -> list:
 
     Sortie  : même liste enrichie avec deux champs supplémentaires :
               - plate_text      : str nettoyé (MAJUSCULES, alphanum only)
-                                  ou None si OCR échoue / confiance trop basse
-              - ocr_confidence  : float [0.0 – 1.0], moyenne des scores
-                                  EasyOCR sur les boîtes retournées,
-                                  0.0 si aucun résultat
+                                  ou None si OCR échoue / confiance trop basse /
+                                  longueur hors plage [2, 8] (Mendeley uniquement)
+              - ocr_confidence  : float [0.0 – 1.0]
+                                  • Mendeley : moyenne pondérée par longueur de fragment
+                                  • Roboflow : moyenne simple des scores EasyOCR
 
-    Alimente : Phase 5 (segmentation caractères) — améliore le labellisage
-               automatique des caractères segmentés
+    Deux chemins distincts selon la source :
+      - source == "mendeley" → _ocr_mendeley_crop() : confiance pondérée +
+        validation plausibilité longueur ; plate_text est None si l'un des
+        deux critères échoue. Seuls les crops retenus alimenteront le
+        labellisage automatique dans la Phase 5.
+      - source != "mendeley" → logique standard (moyenne simple, pas de filtre
+        longueur) ; ces crops sont labelisés via le modèle YOLO+OCR (Module A2).
+
+    Alimente : Phase 5 (segmentation caractères) — labellisage des caractères
+               segmentés depuis les crops Mendeley à transcription fiable
     """
     if not EASYOCR_AVAILABLE:
         logger.warning(
@@ -821,74 +901,84 @@ def run_ocr_on_crops(plate_crops: list, output_dir: Path) -> list:
     reader = easyocr.Reader(["en"], gpu=use_gpu)
 
     ocr_results_log = []
-    n_success = 0
-    n_low_conf = 0
-    n_failed = 0
+    n_success        = 0   # texte retenu (confiance + plausibilité OK)
+    n_low_conf       = 0   # rejeté : confiance < 0.45
+    n_implausible    = 0   # rejeté : longueur hors [2, 8]
+    n_failed         = 0   # image illisible ou exception
 
     for crop_info in tqdm(plate_crops, desc="OCR plaques"):
         crop_path = crop_info.get("crop_path", "")
-        source = crop_info.get("source", "")
-        already_has_text = (
-            crop_info.get("plate_text") is not None
-            and source == "mendeley"
-        )
+        source    = crop_info.get("source", "")
 
         try:
             img = cv2.imread(crop_path)
             if img is None:
+                crop_info["plate_text"]     = crop_info.get("plate_text")
                 crop_info["ocr_confidence"] = 0.0
                 n_failed += 1
                 ocr_results_log.append({
-                    "crop_path": crop_path,
-                    "plate_text": crop_info.get("plate_text"),
+                    "crop_path":      crop_path,
+                    "plate_text":     crop_info.get("plate_text"),
                     "ocr_confidence": 0.0,
-                    "source": source,
+                    "source":         source,
                 })
                 continue
 
-            detections = reader.readtext(img)
+            if source == "mendeley":
+                # ── Chemin strict : confiance pondérée + plausibilité longueur ──
+                plate_text, avg_conf = _ocr_mendeley_crop(reader, img)
+                crop_info["plate_text"]     = plate_text
+                crop_info["ocr_confidence"] = avg_conf
 
-            if not detections:
-                crop_info["ocr_confidence"] = 0.0
-                if not already_has_text:
-                    crop_info["plate_text"] = None
-                n_failed += 1
-            else:
-                # Concaténation des textes et moyenne des confiances
-                texts = []
-                confidences = []
-                for (_bbox, text, conf) in detections:
-                    texts.append(text)
-                    confidences.append(conf)
-
-                raw_text = "".join(texts)
-                # Nettoyage : majuscules, alphanum uniquement
-                cleaned = re.sub(r"[^A-Z0-9]", "", raw_text.upper())
-                avg_conf = float(sum(confidences) / len(confidences))
-
-                if avg_conf >= 0.45 and cleaned:
-                    if not already_has_text:
-                        crop_info["plate_text"] = cleaned
-                    crop_info["ocr_confidence"] = avg_conf
+                if plate_text is not None:
                     n_success += 1
+                elif avg_conf >= 0.45:
+                    # Confiance suffisante mais longueur hors plage
+                    n_implausible += 1
                 else:
-                    if not already_has_text:
-                        crop_info["plate_text"] = None
-                    crop_info["ocr_confidence"] = avg_conf
                     n_low_conf += 1
 
-        except Exception as e:
-            logger.error(f"OCR erreur sur {crop_path} : {e}")
+            else:
+                # ── Chemin standard : Roboflow (ou source inconnue) ──────────
+                # Moyenne simple des confidences — pas de filtre plausibilité
+                # car ces crops seront relabellisés par le modèle YOLO+OCR (A2)
+                detections = reader.readtext(img)
+
+                if not detections:
+                    crop_info["plate_text"]     = None
+                    crop_info["ocr_confidence"] = 0.0
+                    n_failed += 1
+                else:
+                    texts       = []
+                    confidences = []
+                    for (_bbox, text, conf) in detections:
+                        texts.append(text)
+                        confidences.append(conf)
+
+                    raw_text = "".join(texts)
+                    cleaned  = re.sub(r"[^A-Z0-9]", "", raw_text.upper())
+                    avg_conf = float(sum(confidences) / len(confidences))
+
+                    if avg_conf >= 0.45 and cleaned:
+                        crop_info["plate_text"]     = cleaned
+                        crop_info["ocr_confidence"] = avg_conf
+                        n_success += 1
+                    else:
+                        crop_info["plate_text"]     = None
+                        crop_info["ocr_confidence"] = avg_conf
+                        n_low_conf += 1
+
+        except Exception as exc:
+            logger.error(f"OCR erreur sur {crop_path} : {exc}")
             crop_info["ocr_confidence"] = 0.0
-            if not already_has_text:
-                crop_info["plate_text"] = None
+            crop_info.setdefault("plate_text", None)
             n_failed += 1
 
         ocr_results_log.append({
-            "crop_path": crop_path,
-            "plate_text": crop_info.get("plate_text"),
+            "crop_path":      crop_path,
+            "plate_text":     crop_info.get("plate_text"),
             "ocr_confidence": crop_info.get("ocr_confidence", 0.0),
-            "source": source,
+            "source":         source,
         })
 
     # Sauvegarde du rapport OCR
@@ -896,11 +986,22 @@ def run_ocr_on_crops(plate_crops: list, output_dir: Path) -> list:
     with open(ocr_report_path, "w", encoding="utf-8") as f:
         json.dump(ocr_results_log, f, indent=2, ensure_ascii=False)
 
-    logger.info(
-        f"Phase 3bis OCR terminée : {n_success} textes lus, "
-        f"{n_low_conf} confiance insuffisante (<0.45), "
-        f"{n_failed} échecs — résultats → {ocr_report_path}"
+    n_mendeley_retained = sum(
+        1 for c in plate_crops
+        if c.get("source") == "mendeley" and c.get("plate_text") is not None
     )
+    n_mendeley_total = sum(1 for c in plate_crops if c.get("source") == "mendeley")
+
+    logger.info(
+        f"Phase 3bis OCR terminée : {n_success} textes retenus, "
+        f"{n_low_conf} conf<0.45, {n_implausible} longueur hors plage, "
+        f"{n_failed} échecs"
+    )
+    logger.info(
+        f"  Mendeley : {n_mendeley_retained}/{n_mendeley_total} crops "
+        f"avec transcription fiable (→ labellisation Phase 5)"
+    )
+    logger.info(f"  Résultats OCR → {ocr_report_path}")
     return plate_crops
 
 
@@ -1492,10 +1593,11 @@ def save_and_split(X: np.ndarray, y: np.ndarray,
         np.save(str(output_dir / "features_test.npy"), X_test)
         np.save(str(output_dir / "labels_test.npy"), y_test)
 
-        # Fichier des noms de classes
-        class_names_lines = [f"{i},{c}" for i, c in enumerate(VALID_CHARS)]
+        # class_names.txt : une classe par ligne, position = index dans LABEL_TO_IDX
+        # Doit correspondre exactement à VALID_CHARS (sorted alphanum)
+        # → naive_bayes.py lit ce fichier pour reconstruire les noms de classes
         with open(output_dir / "class_names.txt", "w") as f:
-            f.write("\n".join(class_names_lines))
+            f.write("\n".join(VALID_CHARS))
 
         results["chars"] = {
             "train": len(X_train),
@@ -1690,6 +1792,44 @@ def _print_final_report(results: dict):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# UTILITAIRES INTER-PHASES
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _source_from_crop_path(p: Path) -> str:
+    """Infère la source d'un crop depuis le préfixe de son nom de fichier."""
+    name = p.name
+    if name.startswith("roboflow_"):
+        return "roboflow"
+    if name.startswith("mendeley_"):
+        return "mendeley"
+    return "unknown"
+
+
+def _load_crops_from_disk(crops_dir: Path) -> tuple:
+    """
+    Charge tous les crops d'un répertoire et les sépare par source
+    (inférée depuis le préfixe du nom de fichier : roboflow_* / mendeley_*).
+    Retourne : (plate_crops_rf, plate_crops_md)
+    """
+    if not crops_dir.exists():
+        return [], []
+    all_crops = [
+        {
+            "crop_path":        str(p),
+            "plate_text":       None,
+            "source":           _source_from_crop_path(p),
+            "detection_method": "loaded",
+            "original_image":   "",
+            "blur_score":       0.0,
+        }
+        for p in sorted(crops_dir.glob("*.jpg"))
+    ]
+    rf = [c for c in all_crops if c["source"] == "roboflow"]
+    md = [c for c in all_crops if c["source"] != "roboflow"]
+    return rf, md
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # GESTION DE L'ÉTAT DU PIPELINE
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1787,12 +1927,15 @@ def main():
     logger.info(f"PlateVision — Phases à exécuter : {sorted(phases_to_run)}")
 
     # Variables inter-phases
-    datasets_dict = None
-    eda_report = None
-    plate_crops = None
-    chars_list = None
-    chars_valides = None
-    crops_valides = None
+    datasets_dict    = None
+    eda_report       = None
+    plate_crops_rf   = None          # Roboflow → A1 caractères (Phases 4-7)
+    plate_crops_md   = None          # Mendeley  → A2 YOLO uniquement
+    chars_list       = None
+    chars_valides    = None
+    crops_valides_rf = None          # crops Roboflow validés → extract_all_features
+    crops_valides_md = None          # crops Mendeley validés → split YOLO
+    crops_valides    = None          # union rf + md → Phase 8 YOLO split
     X = None
     y = None
 
@@ -1828,36 +1971,34 @@ def main():
         logger.info("═" * 60)
         if datasets_dict is None:
             datasets_dict = load_raw_datasets(ROBOFLOW_PATH, MENDELEY_PATH)
-        plate_crops = extract_plate_regions(datasets_dict, OUTPUT_DIR)
+        # extract_plate_regions() retourne deux listes séparées dès la source
+        plate_crops_rf, plate_crops_md = extract_plate_regions(datasets_dict, OUTPUT_DIR)
         _save_pipeline_state(3, {
-            "n_crops": len(plate_crops),
+            "n_crops":    len(plate_crops_rf) + len(plate_crops_md),
+            "n_crops_rf": len(plate_crops_rf),
+            "n_crops_md": len(plate_crops_md),
             "crops_file": str(OUTPUT_DIR / "plate_crops"),
         })
 
     # ── Phase 4 — OCR ─────────────────────────────────────────────────────────
     if 4 in phases_to_run:
         logger.info("═" * 60)
-        logger.info("PHASE 4 — OCR SUR LES CROPS (3BIS)")
+        logger.info("PHASE 4 — OCR SUR LES CROPS ROBOFLOW (labellisation A1)")
         logger.info("═" * 60)
-        if plate_crops is None:
-            crops_dir = OUTPUT_DIR / "plate_crops"
-            plate_crops = [
-                {
-                    "crop_path": str(p),
-                    "plate_text": None,
-                    "source": "unknown",
-                    "detection_method": "loaded",
-                    "original_image": "",
-                    "blur_score": 0.0,
-                }
-                for p in sorted(crops_dir.glob("*.jpg"))
-            ] if crops_dir.exists() else []
-            logger.info(f"Phase 4 (OCR) : {len(plate_crops)} crops chargés depuis le disque.")
+        if plate_crops_rf is None:
+            plate_crops_rf, plate_crops_md = _load_crops_from_disk(
+                OUTPUT_DIR / "plate_crops"
+            )
+            logger.info(
+                f"Phase 4 : {len(plate_crops_rf)} crops Roboflow + "
+                f"{len(plate_crops_md)} crops Mendeley chargés depuis le disque."
+            )
 
-        plate_crops = run_ocr_on_crops(plate_crops, OUTPUT_DIR)
-        n_with_text = sum(1 for c in plate_crops if c.get("plate_text"))
+        # OCR uniquement sur les crops Roboflow — Mendeley n'alimente pas A1
+        plate_crops_rf = run_ocr_on_crops(plate_crops_rf, OUTPUT_DIR)
+        n_with_text = sum(1 for c in plate_crops_rf if c.get("plate_text"))
         _save_pipeline_state(4, {
-            "n_crops": len(plate_crops),
+            "n_crops_rf":  len(plate_crops_rf),
             "n_with_text": n_with_text,
             "ocr_results": str(OUTPUT_DIR / "ocr_results.json"),
         })
@@ -1865,26 +2006,23 @@ def main():
     # ── Phase 5 ───────────────────────────────────────────────────────────────
     if 5 in phases_to_run:
         logger.info("═" * 60)
-        logger.info("PHASE 5 — SEGMENTATION CARACTÈRES")
+        logger.info("PHASE 5 — SEGMENTATION CARACTÈRES (Roboflow uniquement)")
         logger.info("═" * 60)
-        if plate_crops is None:
-            # Reconstituer la liste depuis le dossier crops
-            crops_dir = OUTPUT_DIR / "plate_crops"
-            plate_crops = [
-                {
-                    "crop_path": str(p),
-                    "plate_text": None,
-                    "source": "unknown",
-                    "detection_method": "loaded",
-                    "original_image": "",
-                    "blur_score": 0.0,
-                }
-                for p in sorted(crops_dir.glob("*.jpg"))
-            ] if crops_dir.exists() else []
-            logger.info(f"Phase 5 : {len(plate_crops)} crops chargés depuis le disque.")
+        if plate_crops_rf is None:
+            plate_crops_rf, plate_crops_md = _load_crops_from_disk(
+                OUTPUT_DIR / "plate_crops"
+            )
+            logger.info(
+                f"Phase 5 : {len(plate_crops_rf)} crops Roboflow chargés "
+                f"({len(plate_crops_md)} Mendeley ignorés pour la segmentation)."
+            )
 
-        chars_list = segment_characters(plate_crops, OUTPUT_DIR)
-        _save_pipeline_state(5, {"n_chars": len(chars_list)})
+        # Seuls les crops Roboflow produisent des caractères labellisés pour A1
+        chars_list = segment_characters(plate_crops_rf, OUTPUT_DIR)
+        _save_pipeline_state(5, {
+            "n_chars":      len(chars_list),
+            "source_chars": "roboflow",
+        })
 
     # ── Phase 6 ───────────────────────────────────────────────────────────────
     if 6 in phases_to_run:
@@ -1892,7 +2030,7 @@ def main():
         logger.info("PHASE 6 — NETTOYAGE ET VALIDATION")
         logger.info("═" * 60)
         if chars_list is None:
-            # Reconstituer depuis le dossier characters
+            # Reconstituer depuis le dossier characters (issus de Roboflow uniquement)
             chars_dir = OUTPUT_DIR / "characters"
             chars_list = []
             if chars_dir.exists():
@@ -1902,25 +2040,40 @@ def main():
                             chars_list.append({
                                 "char_path": str(img_path),
                                 "label": label_dir.name,
-                                "plate_source": "loaded",
+                                "plate_source": "roboflow",
                                 "position": 0,
                                 "bbox": (0, 0, 0, 0),
                                 "label_certain": label_dir.name in VALID_CHARS,
                             })
-            logger.info(f"Phase 6 : {len(chars_list)} chars chargés depuis le disque.")
+            logger.info(f"Phase 6 : {len(chars_list)} chars Roboflow chargés depuis le disque.")
 
-        if plate_crops is None:
-            crops_dir = OUTPUT_DIR / "plate_crops"
-            plate_crops = [
-                {"crop_path": str(p), "plate_text": None, "source": "loaded",
-                 "original_image": ""}
-                for p in sorted(crops_dir.glob("*.jpg"))
-            ] if crops_dir.exists() else []
+        if plate_crops_rf is None:
+            plate_crops_rf, plate_crops_md = _load_crops_from_disk(
+                OUTPUT_DIR / "plate_crops"
+            )
 
-        chars_valides, crops_valides = clean_and_validate(chars_list, plate_crops)
+        # Validation complète (déduplication, flou, labels) sur chars + crops rf
+        chars_valides, crops_valides_rf = clean_and_validate(chars_list, plate_crops_rf)
+
+        # Validation légère des crops Mendeley (intégrité image uniquement)
+        # → contribuent au split YOLO (Phase 8) mais pas aux features A1
+        crops_valides_md = [
+            c for c in (plate_crops_md or [])
+            if cv2.imread(c["crop_path"]) is not None
+        ]
+        logger.info(
+            f"Mendeley : {len(crops_valides_md)} crops valides "
+            f"(→ split YOLO Phase 8 uniquement, hors pipeline A1)"
+        )
+
+        # Union pour le split YOLO en Phase 8
+        crops_valides = crops_valides_rf + crops_valides_md
+
         _save_pipeline_state(6, {
-            "n_chars_valides": len(chars_valides),
-            "n_crops_valides": len(crops_valides),
+            "n_chars_valides":    len(chars_valides),
+            "n_crops_rf_valides": len(crops_valides_rf),
+            "n_crops_md_valides": len(crops_valides_md),
+            "source_chars":       "roboflow",
         })
 
     # ── Phase 7 ───────────────────────────────────────────────────────────────
@@ -1928,11 +2081,13 @@ def main():
         logger.info("═" * 60)
         logger.info("PHASE 7 — EXTRACTION FEATURES MANUELLES")
         logger.info("═" * 60)
-        if chars_valides is None or crops_valides is None:
+        if chars_valides is None or crops_valides_rf is None:
             logger.error("Phase 7 nécessite les résultats de la phase 6. "
                          "Relancer avec --from-phase 6")
             sys.exit(1)
-        X, y = extract_all_features(chars_valides, crops_valides)
+        # Extraction sur crops Roboflow uniquement — les features Mendeley
+        # ne doivent pas contaminer features.npy / labels.npy (A1)
+        X, y = extract_all_features(chars_valides, crops_valides_rf)
         _save_pipeline_state(7, {
             "X_shape": list(X.shape) if X is not None else [],
             "y_shape": list(y.shape) if y is not None else [],
