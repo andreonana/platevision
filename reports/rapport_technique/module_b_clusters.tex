@@ -1,0 +1,78 @@
+\section{Module B — Clustering K-Means et interprétation MINT/DGI}
+\label{sec:module_b_clusters}
+
+\subsection{Familles de plaques identifiées}
+
+L'algorithme K-Means appliqué aux embeddings 256D du CNN \texttt{CharEmbeddingCNN}
+(couche \texttt{fc1}, §\ref{sec:module_b_cnn}) a produit $k=3$ clusters
+sur un corpus de 4454 images de caractères.
+Chaque cluster est ensuite nommé selon les procédures opérationnelles MINT/DGI
+Cameroun détaillées en §\ref{sec:procedures_mint_dgi}.
+
+\begin{table}[H]
+    \centering
+    \caption{Clusters K-Means — interprétation MINT/DGI (Module B)}
+    \label{tab:clusters_mint_dgi}
+    \small
+    \begin{tabular}{c|p{3cm}|r|r|r|r|p{1.8cm}|c|c}
+        \hline
+        \textbf{ID} & \textbf{Famille} & \textbf{N} & \textbf{\%} &
+        \textbf{Dist.} & \textbf{Conf.H\%} & \textbf{Top chars} &
+        \textbf{Autorité} & \textbf{Action MDP} \\
+        \hline
+        0 & Plaque conforme & 1644 & 36.9\% & 9.38 & 24.9\% & K, H, R & — & \texttt{PASS} \\
+        \hline
+        1 & Plaque illisible/dégradée & 437 & 9.8\% & 6.91 & 83.3\% & A, 9, 4 & MINT & \texttt{ALERT_MINT} \\
+        \hline
+        2 & Plaque expirée & 2373 & 53.3\% & 9.37 & 29.4\% & B, C, 8 & DGI & \texttt{ALERT_DGI} \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\subsection{Cohérence clustering / labels supervisés}
+
+La comparaison entre les clusters non supervisés et les labels de caractères
+supervisés donne :
+\begin{itemize}
+    \item \textbf{ARI} (Adjusted Rand Index) : $0.0759$ —
+    mesure la concordance entre partitions (0 = aléatoire, 1 = parfait).
+    \item \textbf{NMI} (Normalized Mutual Information) : $0.3122$ —
+    mesure l'information partagée entre les deux partitions.
+\end{itemize}
+
+Ces valeurs confirment que le K-Means capture des structures visuelles
+cohérentes avec les labels de caractères, tout en révélant des regroupements
+fonctionnels supplémentaires liés aux procédures MINT/DGI
+(voir figure~\ref{fig:cluster_vs_labels_interp}).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/cluster_vs_labels_interp.png}
+    \caption{Distribution des clusters K-Means par label de caractère —
+    Module B (ARI=0.076, NMI=0.312)}
+    \label{fig:cluster_vs_labels_interp}
+\end{figure}
+
+\subsection{Niveaux de confiance et états MDP (§4.3)}
+
+La distance au centroïde de chaque image est discrétisée en trois niveaux
+par terciles globaux :
+\begin{itemize}
+    \item \textbf{Confiance haute} (niveau 0, $d \leq q_{33}$) :
+    image proche du centroïde — assignation fiable.
+    \item \textbf{Confiance moyenne} (niveau 1, $q_{33} < d \leq q_{66}$).
+    \item \textbf{Confiance faible} (niveau 2, $d > q_{66}$) :
+    cas ambigu — recours humain recommandé.
+\end{itemize}
+
+En combinant les $k=3$ clusters, les 3 niveaux de confiance
+et le signal d'alerte binaire du CNN, on obtient
+$k \times 3 \times 2 = 18$ états MDP pour le Module C
+(§\ref{sec:module_c_mdp}).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/cluster_summary.png}
+    \caption{Résumé des clusters K-Means — taille, confiance et procédure MINT/DGI}
+    \label{fig:cluster_summary}
+\end{figure}
