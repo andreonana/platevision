@@ -40,29 +40,45 @@ def load_embeddings(
 ) -> tuple[np.ndarray, pd.DataFrame]:
     """
     Charge embeddings.npy et metadata.csv depuis data_dir.
-    Vérifie la cohérence des longueurs.
+    Fallback : si metadata.csv est absent mais embeddings_labels.npy existe
+    (produit par cnn_embeddings.py B0), construit un DataFrame minimal.
     Retourne (embeddings, metadata).
     """
-    data_dir = Path(data_dir)
-    emb_path  = data_dir / "embeddings.npy"
-    meta_path = data_dir / "metadata.csv"
+    data_dir   = Path(data_dir)
+    emb_path   = data_dir / "embeddings.npy"
+    meta_path  = data_dir / "metadata.csv"
+    label_path = data_dir / "embeddings_labels.npy"
 
     if not emb_path.exists():
         raise RuntimeError(
-            "Embeddings absents. Exécute d'abord : python main.py --module B1"
-        )
-    if not meta_path.exists():
-        raise RuntimeError(
-            "metadata.csv absent. Exécute d'abord : python main.py --module B1"
+            "Embeddings absents. Exécute d'abord : python -m modules.module_b.cnn_embeddings"
         )
 
     embeddings = np.load(emb_path).astype(np.float32)
-    metadata   = pd.read_csv(meta_path)
+
+    if meta_path.exists():
+        metadata = pd.read_csv(meta_path)
+    elif label_path.exists():
+        # B0 a produit embeddings_labels.npy mais B1 n'a pas encore tourné
+        logger.warning(
+            "metadata.csv absent — fallback sur embeddings_labels.npy"
+        )
+        y = np.load(label_path).astype(np.int32)
+        label_names = [str(i) for i in range(10)] + [chr(ord("A") + i) for i in range(26)]
+        metadata = pd.DataFrame({
+            "label_int":  y,
+            "label_char": [label_names[i] if i < len(label_names) else "?" for i in y],
+        })
+    else:
+        raise RuntimeError(
+            "metadata.csv et embeddings_labels.npy absents. "
+            "Exécute d'abord : python -m modules.module_b.cnn_embeddings"
+        )
 
     if len(embeddings) != len(metadata):
         raise ValueError(
             f"Incohérence : {len(embeddings)} embeddings mais "
-            f"{len(metadata)} lignes dans metadata.csv"
+            f"{len(metadata)} lignes dans metadata"
         )
 
     logger.info(
