@@ -569,15 +569,20 @@ def evaluate_full_pipeline(weights_path: "Path | None" = None,
         for entry in entries:
             pt = entry.get("plate_text") or ""
             conf = entry.get("ocr_confidence", 0.0) or 0.0
-            img = entry.get("image_path") or entry.get("filename") or ""
-            if pt and conf >= 0.45:
-                references[Path(img).name] = postprocess_ocr_text(pt)
+            # crop_path: e.g. data/processed/plate_crops/roboflow_00001.jpg
+            # maps to YOLO test image: 000001.jpg (strip source prefix, zero-pad)
+            crop = entry.get("crop_path") or entry.get("image_path") or entry.get("filename") or ""
+            if pt and conf >= 0.45 and crop:
+                stem = Path(crop).stem  # e.g. "roboflow_00001"
+                parts = stem.split("_", 1)
+                img_name = parts[-1].zfill(6) + ".jpg"  # "000001.jpg"
+                references[img_name] = postprocess_ocr_text(pt)
 
     if len(references) < 10:
         logger.warning("Seulement %d références OCR disponibles (< 10).", len(references))
 
     # ── Images de test ────────────────────────────────────────────────────
-    test_dir = Path("data/processed/yolo/images/test")
+    test_dir = Path("data/processed/images/test")
     test_images = sorted(test_dir.glob("*.jpg")) if test_dir.exists() else []
 
     # Filtrer celles qui ont une référence
@@ -633,7 +638,8 @@ def evaluate_full_pipeline(weights_path: "Path | None" = None,
     if nb_metrics_path.exists():
         with open(nb_metrics_path, "r", encoding="utf-8") as f:
             nb = json.load(f)
-        nb_acc = float(nb.get("accuracy", nb.get("test_accuracy", 0.0)))
+        nb_test = nb.get("test", nb)
+        nb_acc = float(nb_test.get("accuracy", nb.get("accuracy", 0.0)))
         better = "YOLO+OCR meilleur" if metrics["mean_wer"] < (1 - nb_acc) else "NB meilleur"
         metrics["comparison_nb_vs_yolo_ocr"] = {
             "nb_accuracy":   nb_acc,

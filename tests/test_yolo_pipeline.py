@@ -303,3 +303,69 @@ def test_evaluate_full_pipeline_missing_weights(tmp_path):
     """Poids absents → FileNotFoundError."""
     with pytest.raises(FileNotFoundError):
         evaluate_full_pipeline(weights_path=tmp_path / "noexist.pt")
+
+
+def test_evaluate_full_pipeline_uses_nested_test_accuracy(tmp_path, monkeypatch):
+    """La comparaison NB vs YOLO doit lire accuracy depuis la clef test."""
+    import json
+    import sys
+
+    monkeypatch.chdir(tmp_path)
+
+    # Poids et images de test minimaux
+    fake_weights = tmp_path / "best.pt"
+    fake_weights.write_bytes(b"fake")
+    test_img_dir = tmp_path / "data/processed/images/test"
+    test_img_dir.mkdir(parents=True)
+    img_path = test_img_dir / "000001.jpg"
+    import numpy as np
+    import cv2
+    cv2.imwrite(str(img_path), np.zeros((640, 640, 3), dtype=np.uint8))
+
+    # Références OCR pour la même image
+    ocr_results_path = tmp_path / "data/processed/ocr_results.json"
+    ocr_results_path.parent.mkdir(parents=True, exist_ok=True)
+    ocr_results_path.write_text(
+        json.dumps([
+            {
+                "plate_text": "ABC123",
+                "ocr_confidence": 0.5,
+                "crop_path": "data/processed/plate_crops/000001.jpg",
+            }
+        ]),
+        encoding="utf-8",
+    )
+
+    # NB metrics avec champ nested test/accuracy
+    nb_metrics_path = tmp_path / "models/weights/naive_bayes_metrics.json"
+    nb_metrics_path.parent.mkdir(parents=True, exist_ok=True)
+    nb_metrics_path.write_text(
+        json.dumps({"test": {"accuracy": 0.95}, "accuracy": 0.1}),
+        encoding="utf-8",
+    )
+
+    # Mocks du pipeline YOLO+OCR
+    monkeypatch.setitem(sys.modules, "easyocr", MagicMock(Reader=lambda langs, gpu: MagicMock()))
+
+    def fake_detect_plate(image_path, weights_path=None, save_annotated=False):
+        return {
+            "n_detections": 1,
+            "detections": [{"crop": np.zeros((224, 224, 3), dtype=np.uint8),
+                            "bbox": [0, 0, 10, 10],
+                            "confidence": 0.9}],
+        }
+
+    def fake_read_plate_ocr(crop, reader=None):
+        return {"plate_text": "ABC123", "confidence": 0.9}
+
+    monkeypatch.setattr("modules.module_a.yolo_ocr_pipeline.detect_plate", fake_detect_plate)
+    monkeypatch.setattr("modules.module_a.yolo_ocr_pipeline.read_plate_ocr", fake_read_plate_ocr)
+
+    metrics = evaluate_full_pipeline(
+        weights_path=fake_weights,
+        ocr_results_path=ocr_results_path,
+        report_dir=tmp_path / "reports",
+    )
+
+    assert metrics["comparison_nb_vs_yolo_ocr"]["nb_accuracy"] == 0.95
+    assert metrics["comparison_nb_vs_yolo_ocr"]["improvement"] == "YOLO+OCR meilleur"
