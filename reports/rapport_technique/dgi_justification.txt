@@ -1,0 +1,32 @@
+ANALYSE COÛT/BÉNÉFICE — ACTION SIGNALEMENT DGI (§4.3)
+─────────────────────────────────────────────────────────────────
+
+Coût opérationnel par activation : 2,000 FCFA
+  - Transmission numérique automatique via PlateVision : ~0 FCFA marginal
+  - Frais postaux avis de recouvrement DGI : ~500 FCFA
+  - Temps agent MINT (< 1 minute) : ~1 500 FCFA
+  Source : estimation interne MINT/DGI, coûts administratifs 2023
+
+Gain attendu par recouvrement réussi : 45,000 FCFA
+  - Vignette VP < 2 000cc  : 37 500 FCFA/an (Loi de Finances 2023)
+  - Vignette VP 2–3 000cc  : 52 500 FCFA/an
+  - Majorations de retard  : +25% si > 30j (CGI Art. 556)
+  Source : DGI Cameroun (2023). Loi de Finances, Annexe fiscale.
+
+Ratio bénéfice/coût : 45,000 / 2,000 = 22.5
+→ Pour chaque FCFA investi, le Signalement DGI rapporte en moyenne
+  22.5 FCFA en recouvrement fiscal.
+
+Comparaison avec Contrôle Standard (ratio = 25,000 / 5,000 = 5.0) :
+→ Le Signalement DGI a un ratio 4.5× supérieur au Contrôle Standard.
+→ Il est d'autant plus pertinent que le véhicule n'est PAS immobilisé,
+  préservant la fluidité du trafic.
+
+Justification d'inclusion dans le MDP :
+L'action Signalement DGI occupe un rôle unique dans l'espace d'actions :
+elle est la seule à combiner coût quasi-nul, impact fiscal élevé, et
+absence d'immobilisation du véhicule. Dans les états où le cluster_id
+indique une plaque "expirée" (Module B) avec confiance OCR moyenne ou
+haute, le MDP doit apprendre à préférer cette action à l'Arrêt+Saisie
+coûteux, à moins que le signal d'alerte CNN ne soit présent.
+─────────────────────────────────────────────────────────────────
