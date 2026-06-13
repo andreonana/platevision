@@ -10,6 +10,10 @@ Usage rapide :
   python main.py --module A2 --input data/raw/ --weights models/weights/yolov8_platevision.pt
   python main.py --module A2 --detect image.jpg
   python main.py --module A  --compare
+  python main.py --module B  --k 3
+  python main.py --module B  --k 4 --force-rerun
+  python main.py --module B4 --k 3
+  python main.py --module B8 --seeds 0 1 42 --n-init-values 5 10 20
   python main.py --pipeline full
   python main.py --prepare-data --from-phase 1
 
@@ -208,11 +212,156 @@ def run_full_pipeline(args) -> None:
     run_yolo_training_pipeline(epochs=50, batch=16, device="auto")
 
     # Étape 4 — Comparaison
-    logger.info("--- Étape 4/4 : Évaluation comparative ---")
+    logger.info("--- Étape 4/5 : Évaluation comparative ---")
     from modules.module_a.evaluate import run_comparative_evaluation
     run_comparative_evaluation()
 
+    # Étape 5 — Module B
+    logger.info("--- Étape 5/5 : Module B — Clustering K-Means ---")
+    run_module_b(args)
+
     logger.info("=== Pipeline complet terminé. Résultats dans reports/ ===")
+
+
+def run_module_b(args) -> None:
+    """
+    Pipeline complet Module B — Clustering non supervisé (§4.2 PlateVision).
+
+    Étapes enchaînées :
+      B0 — CNN CharEmbeddingCNN (si embeddings absents)
+      B1 — Extraction embeddings 256D + metadata.csv
+      B3 — Justification k (elbow + silhouette)
+      B4 — K-Means final + dist_centroid + confidence_level
+      B5 — Visualisation PCA/t-SNE colorée par cluster
+      B6 — Nommage métier + cluster_mapping.json → Module C
+      B8 — Robustesse (optionnel, skip si --fast)
+
+    §5 — Soutenance : passer --k N --force-rerun pour régénérer
+    avec un k différent à la demande du jury.
+    """
+    import json as json_lib
+
+    data_dir    = Path("data/processed")
+    models_dir  = Path("models")
+    output_base = Path(args.output) if args.output else Path("reports")
+    figures_dir = output_base / "rapport_technique" / "figures"
+    report_dir  = output_base / "rapport_technique"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    print("\n" + "=" * 60)
+    print("MODULE B — Clustering Non Supervisé (§4.2 PlateVision)")
+    print("=" * 60)
+
+    # ── Étape B0 : CNN (seulement si embeddings absents) ─────────────────────
+    emb_path = Path(args.embeddings) if args.embeddings else data_dir / "embeddings.npy"
+    if not emb_path.exists() or args.force_rerun:
+        print("\n[B0] Entraînement CNN CharEmbeddingCNN...")
+        from modules.module_b.cnn_embeddings import run_cnn_embedding_pipeline
+        run_cnn_embedding_pipeline(
+            data_dir=data_dir,
+            model_path=models_dir / "char_cnn.pth",
+            out_dir=data_dir,
+            force_retrain=args.force_rerun,
+        )
+    else:
+        print(f"[B0] Embeddings existants détectés : {emb_path} — skip CNN")
+
+    # ── Étape B1 : Extraction embeddings ─────────────────────────────────────
+    meta_path = data_dir / "metadata.csv"
+    if not meta_path.exists() or args.force_rerun:
+        print("\n[B1] Extraction embeddings + metadata.csv...")
+        from modules.module_b.extract_embeddings import run_embedding_pipeline
+        run_embedding_pipeline(
+            data_dir=data_dir,
+            model_path=models_dir / "char_cnn.pth",
+            out_dir=data_dir,
+        )
+    else:
+        print(f"[B1] metadata.csv existant — skip extraction")
+
+    # ── Étape B3 : Justification k ────────────────────────────────────────────
+    k_analysis_path = report_dir / "k_analysis.txt"
+    k_auto = None
+    if not k_analysis_path.exists() or args.force_rerun or args.k:
+        print("\n[B3] Calcul du k optimal (elbow + silhouette)...")
+        from modules.module_b.clustering import run_optimal_k_pipeline
+        k_result = run_optimal_k_pipeline(
+            data_dir=data_dir,
+            figures_dir=figures_dir,
+        )
+        k_auto = k_result["recommended"]
+    else:
+        print(f"[B3] k_analysis.txt existant — skip calcul k")
+
+    # Résolution de k : --k explicite > cluster_mapping.json > k_auto
+    k_final = args.k
+    if k_final is None:
+        mapping_path = data_dir / "cluster_mapping.json"
+        if mapping_path.exists():
+            with open(mapping_path) as f:
+                k_final = json_lib.load(f).get("k")
+            print(f"[B3] k lu depuis cluster_mapping.json : k={k_final}")
+        elif k_auto is not None:
+            k_final = k_auto
+        else:
+            raise ValueError(
+                "k non déterminé. Passe --k explicitement ou exécute B3 d'abord."
+            )
+
+    print(f"\n→ k utilisé : {k_final}")
+    if args.k and args.k != k_final:
+        print(f"  [Soutenance §5] k forcé à {args.k} (jury override)")
+
+    # ── Étape B4 : K-Means final ──────────────────────────────────────────────
+    kmeans_path = models_dir / "kmeans_model.pkl"
+    if not kmeans_path.exists() or args.force_rerun:
+        print(f"\n[B4] K-Means final k={k_final}...")
+        from modules.module_b.kmeans_fit import run_kmeans_pipeline
+        run_kmeans_pipeline(
+            data_dir=data_dir,
+            models_dir=models_dir,
+            figures_dir=figures_dir,
+            k=k_final,
+        )
+    else:
+        print(f"[B4] kmeans_model.pkl existant — skip (--force-rerun pour relancer)")
+
+    # ── Étape B5 : Visualisation ──────────────────────────────────────────────
+    print(f"\n[B5] Visualisation PCA/t-SNE (no_tsne={args.no_tsne})...")
+    from modules.module_b.visualization import run_visualization_pipeline
+    run_visualization_pipeline(
+        data_dir=data_dir,
+        models_dir=models_dir,
+        figures_dir=figures_dir,
+        run_tsne=not args.no_tsne,
+    )
+
+    # ── Étape B6 : Interprétation métier ─────────────────────────────────────
+    print(f"\n[B6] Interprétation métier des clusters...")
+    manual = None
+    if args.manual_mapping:
+        manual = json_lib.loads(args.manual_mapping)
+    from modules.module_b.interpret_clusters import run_interpretation_pipeline
+    run_interpretation_pipeline(
+        data_dir=data_dir,
+        models_dir=models_dir,
+        figures_dir=figures_dir,
+        report_dir=report_dir,
+        manual_mapping=manual,
+    )
+
+    print("\n" + "=" * 60)
+    print("MODULE B TERMINÉ")
+    print("=" * 60)
+    print(f"k utilisé         : {k_final}")
+    print(f"Figures           : {figures_dir}/")
+    print(f"Rapport LaTeX     : {report_dir}/module_b_clusters.tex")
+    print(f"Mapping → MDP     : {data_dir}/cluster_mapping.json")
+    print(f"\nCommande soutenance §5 (changer k en direct) :")
+    print(f"  python main.py --module B --k 4 --force-rerun")
+    print(f"\nProchain module :")
+    print(f"  python main.py --module C")
 
 
 def run_prepare_data(args) -> None:
@@ -249,7 +398,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Exemples :
+Exemples Module A :
   python main.py --module A1 --input data/processed/ --output reports/
   python main.py --module A1 --predict 42
   python main.py --module A1 --evaluate
@@ -257,6 +406,15 @@ Exemples :
   python main.py --module A2 --detect image.jpg --weights models/weights/yolov8_platevision.pt
   python main.py --module A2 --evaluate
   python main.py --module A  --compare
+
+Exemples Module B (§4.2) :
+  python main.py --module B  --k 3
+  python main.py --module B  --embeddings data/processed/embeddings.npy --k 3 --output reports/
+  python main.py --module B  --k 4 --force-rerun
+  python main.py --module B4 --k 3
+  python main.py --module B8 --seeds 0 1 42 --n-init-values 5 10 20
+
+Pipelines :
   python main.py --pipeline full
   python main.py --prepare-data --from-phase 5
   python main.py --prepare-data --phase-only 8
@@ -267,9 +425,14 @@ Exemples :
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--module",
-        choices=["A1", "A2", "A"],
+        choices=["A1", "A2", "A",
+                 "B", "B0", "B1", "B2", "B3", "B4", "B5", "B6", "B8"],
         metavar="MODULE",
-        help="Module à exécuter : A1 (Naïves Bayes) | A2 (YOLO+OCR) | A (comparaison)",
+        help=(
+            "Module à exécuter : "
+            "A1 (Naïves Bayes) | A2 (YOLO+OCR) | A (comparaison) | "
+            "B (pipeline complet clustering) | B0-B8 (étapes isolées)"
+        ),
     )
     group.add_argument(
         "--pipeline",
@@ -316,6 +479,39 @@ Exemples :
     parser.add_argument("--compare", action="store_true",
                         help="[A] Tableau comparatif A1 vs A2 (exigence §4.1)")
 
+    # ── Module B ──────────────────────────────────────────────────────────────
+    parser.add_argument(
+        "--embeddings", type=str, default=None,
+        help="[B] Chemin vers embeddings.npy (défaut : data/processed/embeddings.npy)",
+    )
+    parser.add_argument(
+        "--k", type=int, default=None,
+        help="[B] Nombre de clusters K-Means. Si absent : déterminé automatiquement.",
+    )
+    parser.add_argument(
+        "--force-rerun", action="store_true", dest="force_rerun",
+        help="[B] Force la régénération même si les fichiers existent déjà "
+             "(utile soutenance §5 pour changer k en direct)",
+    )
+    parser.add_argument(
+        "--no-tsne", action="store_true", dest="no_tsne",
+        help="[B5] Skip t-SNE dans la visualisation (long si N > 5000)",
+    )
+    parser.add_argument(
+        "--seeds", nargs="+", type=int, default=[0, 1, 2, 7, 13, 21, 42],
+        help="[B8] Graines aléatoires pour test robustesse",
+    )
+    parser.add_argument(
+        "--n-init-values", nargs="+", type=int, default=[1, 5, 10, 20, 50],
+        dest="n_init_values",
+        help="[B8] Valeurs n_init à tester pour robustesse",
+    )
+    parser.add_argument(
+        "--manual-mapping", type=str, default=None, dest="manual_mapping",
+        help='[B6] Mapping cluster→procédure JSON ex: \'{"0":{"action_mdp":"PASS"}}\' '
+             "(soutenance §5)",
+    )
+
     # ── Préparation données ───────────────────────────────────────────────────
     parser.add_argument("--from-phase", type=int, default=None, metavar="N",
                         dest="from_phase",
@@ -356,6 +552,63 @@ def main() -> None:
             logger.error("Exemple : python main.py --module A --compare")
             parser.print_help()
             sys.exit(1)
+
+    elif args.module == "B":
+        run_module_b(args)
+
+    elif args.module == "B0":
+        from modules.module_b.cnn_embeddings import run_cnn_embedding_pipeline
+        run_cnn_embedding_pipeline(
+            force_retrain=args.force_rerun,
+        )
+
+    elif args.module == "B1":
+        from modules.module_b.extract_embeddings import run_embedding_pipeline
+        run_embedding_pipeline()
+
+    elif args.module in ("B2", "B3"):
+        from modules.module_b.clustering import run_optimal_k_pipeline
+        run_optimal_k_pipeline(
+            k_min=2,
+            k_max=10,
+            figures_dir=Path(args.output or "reports") / "rapport_technique" / "figures",
+        )
+
+    elif args.module == "B4":
+        from modules.module_b.kmeans_fit import run_kmeans_pipeline
+        run_kmeans_pipeline(
+            k=args.k,
+            figures_dir=Path(args.output or "reports") / "rapport_technique" / "figures",
+        )
+
+    elif args.module == "B5":
+        from modules.module_b.visualization import run_visualization_pipeline
+        run_visualization_pipeline(
+            run_tsne=not args.no_tsne,
+            figures_dir=Path(args.output or "reports") / "rapport_technique" / "figures",
+        )
+
+    elif args.module == "B6":
+        import json as _json
+        _manual = None
+        if args.manual_mapping:
+            _manual = _json.loads(args.manual_mapping)
+        from modules.module_b.interpret_clusters import run_interpretation_pipeline
+        run_interpretation_pipeline(
+            figures_dir=Path(args.output or "reports") / "rapport_technique" / "figures",
+            report_dir=Path(args.output or "reports") / "rapport_technique",
+            manual_mapping=_manual,
+        )
+
+    elif args.module == "B8":
+        from modules.module_b.robustness import run_robustness_pipeline
+        run_robustness_pipeline(
+            k=args.k,
+            seeds=args.seeds,
+            n_init_values=args.n_init_values,
+            figures_dir=Path(args.output or "reports") / "rapport_technique" / "figures",
+            report_dir=Path(args.output or "reports") / "rapport_technique",
+        )
 
 
 if __name__ == "__main__":
