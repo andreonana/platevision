@@ -16,6 +16,9 @@ Usage rapide :
   python main.py --module B8 --seeds 0 1 42 --n-init-values 5 10 20
   python main.py --pipeline full
   python main.py --prepare-data --from-phase 1
+  python main.py --demo                    # démonstrateur caméra temps réel
+  python main.py --demo --camera 1         # caméra index 1
+  python main.py --demo --input video.mp4  # fichier vidéo
 
 Documentation complète : python main.py --help
 """
@@ -461,6 +464,12 @@ Pipelines :
         dest="prepare_data",
         help="Prépare les données (phases 1-8 de prepare_datasets.py)",
     )
+    group.add_argument(
+        "--demo",
+        action="store_true",
+        dest="demo",
+        help="Démonstrateur temps réel pipeline A→B→C sur caméra (jury §5)",
+    )
 
     # ── Arguments partagés ────────────────────────────────────────────────────
     parser.add_argument("--input",   type=str, default=None,
@@ -488,7 +497,13 @@ Pipelines :
     parser.add_argument("--detect", type=str, default=None, metavar="IMAGE",
                         help="[A2] Pipeline YOLO+OCR sur image (démo jury §5)")
     parser.add_argument("--conf",   type=float, default=0.45,
-                        help="[A2] Seuil confiance YOLO (défaut : 0.45)")
+                        help="[A2/demo] Seuil confiance YOLO (défaut : 0.45)")
+
+    # ── Démo temps réel ───────────────────────────────────────────────────────
+    parser.add_argument(
+        "--camera", type=int, default=0, metavar="INDEX",
+        help="[demo] Index de la caméra (défaut : 0)",
+    )
 
     # ── Comparaison ───────────────────────────────────────────────────────────
     parser.add_argument("--compare", action="store_true",
@@ -547,7 +562,19 @@ def main() -> None:
     parser = build_parser()
     args   = parser.parse_args()
 
-    if args.prepare_data:
+    if args.demo:
+        from modules.interface.camera_demo import run_camera_demo
+        # --input = fichier vidéo/image ; --camera = index webcam
+        source = args.input if args.input else args.camera
+        run_camera_demo(
+            source      = source,
+            data_dir    = Path("data/processed"),
+            model_dir   = Path("models"),
+            figures_dir = Path(args.output or "reports/figures"),
+            conf_yolo   = args.conf,
+        )
+
+    elif args.prepare_data:
         run_prepare_data(args)
 
     elif args.pipeline == "full":
