@@ -1,9 +1,11 @@
 """
-Module B — Étape 2 : Réduction de dimension et visualisation des embeddings CNN
+Module B — Étape 5 : Visualisation des clusters K-Means (§4.2 cahier des charges)
 PlateVision / MINT-DGI Cameroun
 
-PCA et t-SNE projettent les embeddings 256D en 2D pour observer visuellement
-la structure des données avant et après le clustering K-Means (Étape 3).
+Exigence §4.2 : "Visualiser via PCA 2D ou t-SNE avec axes labellisés et titre
+explicatif" + "Comparer les clusters avec les annotations du dataset."
+
+Critère jury §7.1 : "K-Means : justification k, interprétation procédures MINT/DGI"
 """
 
 import logging
@@ -11,81 +13,85 @@ import time
 import warnings
 from pathlib import Path
 
+import joblib
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 import matplotlib.cm as cm
+from matplotlib.patches import Patch
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from sklearn.preprocessing import StandardScaler
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_DATA    = Path("data/processed")
+_DEFAULT_MODELS  = Path("models")
 _DEFAULT_FIGURES = Path("reports/rapport_technique/figures")
 
-# Mapping entier → caractère : 0-9 → '0'-'9' ; 10-35 → 'A'-'Z'
-_LABEL_NAMES: list[str] = (
-    [str(i) for i in range(10)] + [chr(ord("A") + i) for i in range(26)]
-)
+# ── Import CLUSTER_PROCEDURES ─────────────────────────────────────────────────
+try:
+    from modules.module_b.clustering import CLUSTER_PROCEDURES
+except Exception as _e:
+    logger.warning("Import CLUSTER_PROCEDURES échoué (%s) — noms génériques utilisés", _e)
+    CLUSTER_PROCEDURES = {}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 1. CHARGEMENT
 # ══════════════════════════════════════════════════════════════════════════════
 
-def load_embeddings(
+def load_data(
     data_dir: Path = _DEFAULT_DATA,
-) -> tuple[np.ndarray, pd.DataFrame]:
-    """
-    Charge embeddings.npy et metadata.csv depuis data_dir.
-    Fallback : si metadata.csv est absent mais embeddings_labels.npy existe
-    (produit par cnn_embeddings.py B0), construit un DataFrame minimal.
-    Retourne (embeddings, metadata).
-    """
+    models_dir: Path = _DEFAULT_MODELS,
+) -> tuple[np.ndarray, np.ndarray, pd.DataFrame, object]:
     data_dir   = Path(data_dir)
-    emb_path   = data_dir / "embeddings.npy"
-    meta_path  = data_dir / "metadata.csv"
-    label_path = data_dir / "embeddings_labels.npy"
+    models_dir = Path(models_dir)
+
+    emb_path    = data_dir   / "embeddings.npy"
+    meta_path   = data_dir   / "metadata.csv"
+    scaler_path = models_dir / "kmeans_scaler.pkl"
+    km_path     = models_dir / "kmeans_model.pkl"
 
     if not emb_path.exists():
         raise RuntimeError(
-            "Embeddings absents. Exécute d'abord : python -m modules.module_b.cnn_embeddings"
+            "embeddings.npy absent. Exécute : python main.py --module B1"
+        )
+    if not meta_path.exists():
+        raise RuntimeError(
+            "metadata.csv absent. Exécute : python main.py --module B1"
+        )
+    if not km_path.exists():
+        raise RuntimeError(
+            "kmeans_model.pkl absent. Exécute d'abord : python main.py --module B4"
+        )
+
+    metadata = pd.read_csv(meta_path)
+    if "cluster_id" not in metadata.columns:
+        raise RuntimeError(
+            "cluster_id absent de metadata.csv. Exécute d'abord l'Étape 4 :\n"
+            "python main.py --module B4"
         )
 
     embeddings = np.load(emb_path).astype(np.float32)
 
-    if meta_path.exists():
-        metadata = pd.read_csv(meta_path)
-    elif label_path.exists():
-        # B0 a produit embeddings_labels.npy mais B1 n'a pas encore tourné
-        logger.warning(
-            "metadata.csv absent — fallback sur embeddings_labels.npy"
-        )
-        y = np.load(label_path).astype(np.int32)
-        label_names = [str(i) for i in range(10)] + [chr(ord("A") + i) for i in range(26)]
-        metadata = pd.DataFrame({
-            "label_int":  y,
-            "label_char": [label_names[i] if i < len(label_names) else "?" for i in y],
-        })
+    if scaler_path.exists():
+        scaler            = joblib.load(scaler_path)
+        embeddings_scaled = scaler.transform(embeddings).astype(np.float32)
     else:
-        raise RuntimeError(
-            "metadata.csv et embeddings_labels.npy absents. "
-            "Exécute d'abord : python -m modules.module_b.cnn_embeddings"
-        )
+        logger.warning("kmeans_scaler.pkl absent — StandardScaler refitté sur embeddings")
+        scaler            = StandardScaler()
+        embeddings_scaled = scaler.fit_transform(embeddings).astype(np.float32)
 
-    if len(embeddings) != len(metadata):
-        raise ValueError(
-            f"Incohérence : {len(embeddings)} embeddings mais "
-            f"{len(metadata)} lignes dans metadata"
-        )
-
+    cluster_labels = metadata["cluster_id"].values.astype(np.int32)
     logger.info(
-        "Embeddings chargés : %d vecteurs de dimension %d",
-        embeddings.shape[0], embeddings.shape[1],
+        "Données chargées : %d embeddings | k=%d clusters",
+        len(embeddings_scaled), len(np.unique(cluster_labels)),
     )
-    return embeddings, metadata
+    return embeddings_scaled, cluster_labels, metadata, scaler
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -93,28 +99,17 @@ def load_embeddings(
 # ══════════════════════════════════════════════════════════════════════════════
 
 def reduce_pca(
-    embeddings: np.ndarray,
+    embeddings_scaled: np.ndarray,
     n_components: int = 2,
     random_state: int = 42,
 ) -> tuple[np.ndarray, PCA]:
-    """
-    Réduit les embeddings en n_components dimensions par PCA.
-    Log la variance expliquée par composante.
-    Retourne (coords_2d, pca_model).
-    """
-    pca = PCA(n_components=n_components, random_state=random_state)
-    coords = pca.fit_transform(embeddings).astype(np.float32)
-
-    var = pca.explained_variance_ratio_ * 100
-    total = var.sum()
-    if n_components >= 2:
-        logger.info(
-            "PCA — variance expliquée : PC1=%.1f%%, PC2=%.1f%%, total=%.1f%%",
-            var[0], var[1], total,
-        )
-    else:
-        logger.info("PCA — variance expliquée : PC1=%.1f%%", var[0])
-
+    pca    = PCA(n_components=n_components, random_state=random_state)
+    coords = pca.fit_transform(embeddings_scaled).astype(np.float32)
+    var    = pca.explained_variance_ratio_ * 100
+    logger.info(
+        "PCA variance expliquée : PC1=%.1f%%, PC2=%.1f%%, total=%.1f%%",
+        var[0], var[1], var.sum(),
+    )
     return coords, pca
 
 
@@ -123,130 +118,70 @@ def reduce_pca(
 # ══════════════════════════════════════════════════════════════════════════════
 
 def reduce_tsne(
-    embeddings: np.ndarray,
-    n_components: int = 2,
+    embeddings_scaled: np.ndarray,
     perplexity: float = 30.0,
     n_iter: int = 1000,
     random_state: int = 42,
-    verbose: bool = True,
 ) -> np.ndarray:
-    """
-    Réduit les embeddings en n_components dimensions par t-SNE.
-    Log le temps de calcul. Avertit si N > 5000.
-    Retourne coords_2d (N, n_components).
-    """
-    n = len(embeddings)
+    n = len(embeddings_scaled)
     if n > 5000:
-        logger.warning(
-            "t-SNE sur %d points — calcul long (~%d min estimé)",
-            n, n // 500,
-        )
+        logger.warning("t-SNE sur %d points — calcul long", n)
 
-    tsne = TSNE(
-        n_components=n_components,
-        perplexity=perplexity,
-        n_iter=n_iter,
-        random_state=random_state,
-        verbose=int(verbose),
-    )
-
-    t0 = time.perf_counter()
-    coords = tsne.fit_transform(embeddings).astype(np.float32)
-    elapsed = time.perf_counter() - t0
-
-    logger.info("t-SNE calculé en %.1fs sur %d points", elapsed, n)
+    tsne   = TSNE(n_components=2, perplexity=perplexity, n_iter=n_iter,
+                  random_state=random_state, verbose=0)
+    t0     = time.perf_counter()
+    coords = tsne.fit_transform(embeddings_scaled).astype(np.float32)
+    logger.info("t-SNE calculé en %.1fs", time.perf_counter() - t0)
     return coords
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 4. SCATTER SANS COLORATION
+# 4. PALETTE DE COULEURS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def plot_embeddings_raw(
+def get_cluster_colors(k: int) -> list:
+    cmap = plt.colormaps["tab20"] if k > 10 else plt.colormaps["tab10"]
+    return [cmap(i / max(k - 1, 1)) for i in range(k)]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 5. SCATTER PCA PAR CLUSTER
+# ══════════════════════════════════════════════════════════════════════════════
+
+def plot_clusters_pca(
     coords_2d: np.ndarray,
-    method_name: str,
+    cluster_labels: np.ndarray,
+    k: int,
+    metadata: pd.DataFrame,
     out_path: Path,
-    title: "str | None" = None,
+    cluster_names: "dict[int, str] | None" = None,
 ) -> None:
-    """
-    Scatter plot des embeddings projetés en 2D, sans coloration par label.
-    Couleur unique "#4C72B0", alpha=0.4, taille=8, marker=".".
-    Sauvegarde dans out_path (PNG, dpi=150).
-    """
-    fig, ax = plt.subplots(figsize=(10, 8))
+    colors = get_cluster_colors(k)
+    fig, ax = plt.subplots(figsize=(12, 9), dpi=150)
 
-    ax.scatter(
-        coords_2d[:, 0], coords_2d[:, 1],
-        c="#4C72B0", alpha=0.4, s=8, marker=".",
-    )
-
-    ax.set_title(title or f"Embeddings CNN — {method_name} (sans labels)", fontsize=13)
-    ax.set_xlabel(f"{method_name} dim 1", fontsize=11)
-    ax.set_ylabel(f"{method_name} dim 2", fontsize=11)
-
-    ax.annotate(
-        f"N={len(coords_2d)} embeddings × 256D",
-        xy=(0.02, 0.02), xycoords="axes fraction",
-        fontsize=9, color="gray",
-    )
-
-    plt.tight_layout()
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    logger.info("Figure sauvegardée : %s", out_path)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 5. SCATTER COLORIÉ PAR LABEL
-# ══════════════════════════════════════════════════════════════════════════════
-
-def plot_embeddings_by_label(
-    coords_2d: np.ndarray,
-    labels: np.ndarray,
-    method_name: str,
-    out_path: Path,
-    label_names: "list[str] | None" = None,
-) -> None:
-    """
-    Scatter plot des embeddings projetés en 2D, colorié par label (0-35 classes).
-    Utilise matplotlib.cm.tab20, cyclé sur 36 classes.
-    Légende limitée aux classes effectivement présentes dans labels.
-    Sauvegarde dans out_path (PNG, dpi=150).
-    """
-    if label_names is None:
-        label_names = _LABEL_NAMES
-
-    unique_labels = np.unique(labels)
-    cmap          = plt.colormaps["tab20"]
-    n_colors      = 20  # tab20 a 20 couleurs — on cycle
-
-    fig, ax = plt.subplots(figsize=(14, 10))
-
-    for lbl in unique_labels:
-        mask = labels == lbl
-        color = cmap(int(lbl) % n_colors)
-        name  = label_names[int(lbl)] if int(lbl) < len(label_names) else str(lbl)
+    for i in range(k):
+        mask = cluster_labels == i
         ax.scatter(
             coords_2d[mask, 0], coords_2d[mask, 1],
-            c=[color], alpha=0.5, s=10, marker=".",
-            label=name,
+            c=[colors[i]], alpha=0.5, s=15, marker=".",
         )
 
+    ax.set_xlabel("Composante principale 1", fontsize=11)
+    ax.set_ylabel("Composante principale 2", fontsize=11)
     ax.set_title(
-        f"Embeddings CNN — {method_name} (colorié par classe)", fontsize=13
+        f"Projection PCA des embeddings CNN — clusters K-Means (k={k})\n"
+        f"Module B — Familles de plaques MINT/DGI",
+        fontsize=12,
     )
-    ax.set_xlabel(f"{method_name} dim 1", fontsize=11)
-    ax.set_ylabel(f"{method_name} dim 2", fontsize=11)
 
-    # Légende compacte — colonnes multiples si beaucoup de classes
-    n_cols = max(1, len(unique_labels) // 10)
-    ax.legend(
-        loc="upper right", fontsize=7,
-        markerscale=2, ncol=n_cols,
-        title="Classe", title_fontsize=8,
-        framealpha=0.7,
+    patches = _build_legend_patches(k, colors, cluster_names)
+    ax.legend(handles=patches, loc="upper right", fontsize=7,
+              framealpha=0.85, title="Clusters / Procédures MINT/DGI",
+              title_fontsize=8)
+
+    ax.annotate(
+        f"N={len(coords_2d)} embeddings | embeddings CNN 256D (§4.2)",
+        xy=(0.01, 0.01), xycoords="axes fraction", fontsize=8, color="gray",
     )
 
     plt.tight_layout()
@@ -254,163 +189,348 @@ def plot_embeddings_by_label(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    logger.info("Figure sauvegardée : %s", out_path)
+    logger.info("Figure PCA clusters sauvegardée : %s", out_path)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 6. COURBE DE VARIANCE EXPLIQUÉE
+# 6. SCATTER t-SNE PAR CLUSTER
 # ══════════════════════════════════════════════════════════════════════════════
 
-def plot_variance_explained(
-    pca_model: PCA,
+def plot_clusters_tsne(
+    coords_2d: np.ndarray,
+    cluster_labels: np.ndarray,
+    k: int,
+    metadata: pd.DataFrame,
     out_path: Path,
-    n_components_show: int = 50,
+    cluster_names: "dict[int, str] | None" = None,
 ) -> None:
     """
-    Produit une figure 2 panneaux : variance par composante (bar) et variance
-    cumulée (courbe) avec seuil 90%. Gère le cas où pca_model a moins de
-    n_components_show composantes disponibles.
-    Sauvegarde dans out_path (PNG, dpi=150).
+    Note : t-SNE n'a pas d'interprétation directe des axes —
+    la structure globale seule est significative.
     """
-    var_ratio = pca_model.explained_variance_ratio_
-    n_avail   = len(var_ratio)
+    colors = get_cluster_colors(k)
+    fig, ax = plt.subplots(figsize=(12, 9), dpi=150)
 
-    if n_avail < n_components_show:
-        logger.warning(
-            "pca_model n'a que %d composantes (< %d demandées) — "
-            "tracé limité aux composantes disponibles.",
-            n_avail, n_components_show,
+    for i in range(k):
+        mask = cluster_labels == i
+        ax.scatter(
+            coords_2d[mask, 0], coords_2d[mask, 1],
+            c=[colors[i]], alpha=0.5, s=15, marker=".",
         )
-        n_show = n_avail
-    else:
-        n_show = n_components_show
 
-    var_show  = var_ratio[:n_show] * 100
-    cum_show  = np.cumsum(var_ratio[:n_show]) * 100
-    indices   = np.arange(1, n_show + 1)
+    ax.set_xlabel("Dimension t-SNE 1", fontsize=11)
+    ax.set_ylabel("Dimension t-SNE 2", fontsize=11)
+    ax.set_title(
+        f"Projection t-SNE des embeddings CNN — clusters K-Means (k={k})\n"
+        f"Module B — Familles de plaques MINT/DGI",
+        fontsize=12,
+    )
 
-    # Trouver le composant où la variance cumulée dépasse 90 %
-    cum_all   = np.cumsum(var_ratio) * 100
-    idx_90    = int(np.searchsorted(cum_all, 90.0)) + 1
+    patches = _build_legend_patches(k, colors, cluster_names)
+    ax.legend(handles=patches, loc="upper right", fontsize=7,
+              framealpha=0.85, title="Clusters / Procédures MINT/DGI",
+              title_fontsize=8)
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-    fig.suptitle("PCA — Variance expliquée par composante", fontsize=13)
-
-    # ── Panneau gauche : variance par composante ───────────────────────────
-    ax1.bar(indices, var_show, color="#4C72B0", alpha=0.8)
-    ax1.set_xlabel("Composante principale", fontsize=11)
-    ax1.set_ylabel("Variance expliquée (%)", fontsize=11)
-    ax1.set_title(f"Variance par composante (top {n_show})", fontsize=11)
-    ax1.grid(axis="y", alpha=0.3)
-
-    # ── Panneau droit : variance cumulée ──────────────────────────────────
-    ax2.plot(indices, cum_show, color="#C44E52", linewidth=2, marker="o",
-             markersize=3)
-    ax2.axhline(90, color="green", linestyle="--", linewidth=1.2,
-                label="Seuil 90%")
-    if idx_90 <= n_show:
-        ax2.axvline(idx_90, color="orange", linestyle=":", linewidth=1.2,
-                    label=f"90% atteint à CP{idx_90}")
-    ax2.set_xlabel("Nombre de composantes", fontsize=11)
-    ax2.set_ylabel("Variance cumulée (%)", fontsize=11)
-    ax2.set_title("Variance cumulée", fontsize=11)
-    ax2.legend(fontsize=9)
-    ax2.grid(alpha=0.3)
-    ax2.set_ylim(0, 105)
+    ax.annotate(
+        f"N={len(coords_2d)} embeddings | embeddings CNN 256D (§4.2)",
+        xy=(0.01, 0.01), xycoords="axes fraction", fontsize=8, color="gray",
+    )
 
     plt.tight_layout()
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    logger.info("Figure sauvegardée : %s", out_path)
+    logger.info("Figure t-SNE clusters sauvegardée : %s", out_path)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 7. PIPELINE COMPLET
+# 7. GRILLE D'IMAGES REPRÉSENTATIVES
+# ══════════════════════════════════════════════════════════════════════════════
+
+def plot_representative_images(
+    embeddings_scaled: np.ndarray,
+    cluster_labels: np.ndarray,
+    km_centroids: np.ndarray,
+    data_dir: Path,
+    metadata: pd.DataFrame,
+    k: int,
+    n_samples: int = 8,
+    out_path: "Path | None" = None,
+    cluster_names: "dict[int, str] | None" = None,
+) -> None:
+    import cv2
+
+    data_dir = Path(data_dir)
+    chars_dir = data_dir / "characters"
+
+    # Pré-construction index→chemin image depuis characters/
+    label_to_files: dict[str, list] = {}
+    if chars_dir.exists():
+        for cls_dir in sorted(chars_dir.iterdir()):
+            if cls_dir.is_dir() and cls_dir.name != "unknown":
+                files = sorted(f for f in cls_dir.iterdir()
+                               if f.suffix.lower() in {".png", ".jpg", ".jpeg"})
+                if files:
+                    label_to_files[cls_dir.name] = files
+
+    fig_h = max(k * 2.5, 4)
+    fig_w = n_samples * 1.8
+    fig, axes = plt.subplots(k, n_samples, figsize=(fig_w, fig_h), dpi=120)
+    if k == 1:
+        axes = axes[np.newaxis, :]
+
+    for i in range(k):
+        mask      = cluster_labels == i
+        indices_i = np.where(mask)[0]
+
+        # Top n_samples les plus proches du centroïde
+        if len(indices_i) == 0:
+            top_idx = np.array([], dtype=int)
+        else:
+            dists_i = np.linalg.norm(
+                embeddings_scaled[indices_i] - km_centroids[i], axis=1
+            )
+            top_n   = min(n_samples, len(indices_i))
+            top_idx = indices_i[np.argsort(dists_i)[:top_n]]
+
+        # Label de la ligne
+        info       = cluster_names.get(i, {}) if isinstance(cluster_names, dict) \
+                     else (CLUSTER_PROCEDURES.get(i, {}) if cluster_names is None else {})
+        nom        = info.get("label",     f"Cluster {i}") if isinstance(info, dict) \
+                     else str(info)
+        proc       = CLUSTER_PROCEDURES.get(i, {}).get("procedure", "—")
+        row_title  = f"C{i}\n{nom}\n{proc}"
+
+        for j, ax in enumerate(axes[i]):
+            ax.axis("off")
+            img_shown = False
+
+            if j < len(top_idx):
+                idx = top_idx[j]
+
+                # Priorité 1 — colonne "filename" dans metadata
+                if "filename" in metadata.columns and idx < len(metadata):
+                    fpath = Path(metadata.iloc[idx]["filename"])
+                    if fpath.exists():
+                        img = cv2.imread(str(fpath), cv2.IMREAD_GRAYSCALE)
+                        if img is not None:
+                            ax.imshow(img, cmap="gray", vmin=0, vmax=255)
+                            img_shown = True
+
+                # Priorité 2 — characters/{label_char}/
+                if not img_shown and "label_char" in metadata.columns \
+                        and idx < len(metadata):
+                    lchar = str(metadata.iloc[idx]["label_char"])
+                    files = label_to_files.get(lchar, [])
+                    if files:
+                        # On prend le fichier dont l'index dans la liste
+                        # est cohérent avec la position dans le cluster
+                        file_idx = j % len(files)
+                        img = cv2.imread(str(files[file_idx]), cv2.IMREAD_GRAYSCALE)
+                        if img is not None:
+                            ax.imshow(img, cmap="gray", vmin=0, vmax=255)
+                            img_shown = True
+
+                # Priorité 3 — placeholder
+                if not img_shown:
+                    placeholder = np.full((28, 28), 180, dtype=np.uint8)
+                    ax.imshow(placeholder, cmap="gray", vmin=0, vmax=255)
+                    ax.text(0.5, 0.5, f"#{idx}", ha="center", va="center",
+                            transform=ax.transAxes, fontsize=6, color="black")
+
+        # Titre de la ligne (à gauche)
+        axes[i][0].set_ylabel(row_title, fontsize=7, rotation=0,
+                               labelpad=55, va="center")
+
+    fig.suptitle(
+        "Images représentatives par cluster (proches du centroïde)\n"
+        "Inspection qualitative — §4.2 PlateVision",
+        fontsize=11,
+    )
+    plt.tight_layout(rect=[0.12, 0, 1, 1])
+
+    if out_path is None:
+        out_path = _DEFAULT_FIGURES / "clusters_representative_images.png"
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=120, bbox_inches="tight")
+    plt.close(fig)
+    logger.info("Grille images représentatives sauvegardée : %s", out_path)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 8. DISTRIBUTION DE LA CONFIANCE PAR CLUSTER
+# ══════════════════════════════════════════════════════════════════════════════
+
+def plot_confidence_distribution(
+    metadata: pd.DataFrame,
+    k: int,
+    out_path: Path,
+) -> None:
+    if "confidence_level" not in metadata.columns:
+        logger.warning("confidence_level absent de metadata — plot_confidence_distribution ignoré")
+        return
+
+    conf_colors = ["#2ca02c", "#ff7f0e", "#d62728"]  # vert / orange / rouge
+    conf_labels = ["Confiance haute", "Confiance moyenne", "Confiance faible"]
+
+    counts = np.zeros((k, 3), dtype=int)
+    for i in range(k):
+        mask = metadata["cluster_id"] == i
+        for lvl in range(3):
+            counts[i, lvl] = int((metadata.loc[mask, "confidence_level"] == lvl).sum())
+
+    fig, ax = plt.subplots(figsize=(10, 6), dpi=150)
+    xs    = np.arange(k)
+    bottoms = np.zeros(k, dtype=int)
+
+    for lvl in range(3):
+        ax.bar(xs, counts[:, lvl], bottom=bottoms,
+               color=conf_colors[lvl], label=conf_labels[lvl], edgecolor="white")
+        bottoms += counts[:, lvl]
+
+    ax.set_xticks(xs)
+    ax.set_xticklabels([f"Cluster {i}" for i in range(k)], rotation=30, ha="right")
+    ax.set_xlabel("Cluster ID", fontsize=10)
+    ax.set_ylabel("Nombre de points", fontsize=10)
+    ax.set_title(
+        "Distribution de la confiance du clustering par groupe\n"
+        "(distance au centroïde discrétisée — utile pour états MDP §4.3)",
+        fontsize=11,
+    )
+    ax.legend(fontsize=9)
+    ax.grid(axis="y", alpha=0.3)
+
+    plt.tight_layout()
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    logger.info("Figure confiance sauvegardée : %s", out_path)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# UTILITAIRE INTERNE
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _build_legend_patches(
+    k: int,
+    colors: list,
+    cluster_names: "dict[int, str] | None",
+) -> list:
+    patches = []
+    for i in range(k):
+        if cluster_names and i in cluster_names:
+            info = cluster_names[i]
+            nom  = info.get("label", f"Cluster {i}") if isinstance(info, dict) else str(info)
+            proc = info.get("procedure", "—") if isinstance(info, dict) else "—"
+            lbl  = f"Cluster {i} — {nom} | {proc}"
+        elif CLUSTER_PROCEDURES and i in CLUSTER_PROCEDURES:
+            nom  = CLUSTER_PROCEDURES[i].get("label", f"Cluster {i}")
+            proc = CLUSTER_PROCEDURES[i].get("procedure", "—")
+            lbl  = f"Cluster {i} — {nom} | {proc}"
+        else:
+            lbl = f"Cluster {i}"
+        patches.append(Patch(color=colors[i], label=lbl))
+    return patches
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 9. PIPELINE COMPLET
 # ══════════════════════════════════════════════════════════════════════════════
 
 def run_visualization_pipeline(
     data_dir: Path = _DEFAULT_DATA,
+    models_dir: Path = _DEFAULT_MODELS,
     figures_dir: Path = _DEFAULT_FIGURES,
+    run_tsne: bool = True,
     tsne_perplexity: float = 30.0,
     tsne_n_iter: int = 1000,
-    run_tsne: bool = True,
+    n_representative: int = 8,
     random_state: int = 42,
+    cluster_names: "dict[int, str] | None" = None,
 ) -> dict:
-    """
-    Orchestre la réduction de dimension et la génération des figures pour
-    le Module B Étape 2. Produit PCA et (optionnellement) t-SNE.
-
-    Retourne un dict contenant pca_coords, pca_model, tsne_coords,
-    embeddings et metadata pour réutilisation par le clustering (Étape 3).
-    """
     data_dir    = Path(data_dir)
+    models_dir  = Path(models_dir)
     figures_dir = Path(figures_dir)
     figures_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── 1. Chargement ─────────────────────────────────────────────────────────
-    embeddings, metadata = load_embeddings(data_dir)
+    # 1. Chargement
+    embeddings_scaled, cluster_labels, metadata, scaler = load_data(data_dir, models_dir)
+    k = int(cluster_labels.max()) + 1
 
-    # Labels numériques depuis metadata
-    if "label_int" in metadata.columns:
-        labels = metadata["label_int"].to_numpy(dtype=np.int32)
+    # 2. Centroïdes
+    centroids_path = data_dir / "kmeans_centroids.npy"
+    if centroids_path.exists():
+        km_centroids = np.load(centroids_path).astype(np.float32)
     else:
-        labels = np.zeros(len(metadata), dtype=np.int32)
-        logger.warning("Colonne 'label_int' absente — labels mis à 0.")
+        logger.warning("kmeans_centroids.npy absent — recalcul depuis kmeans_model.pkl")
+        km = joblib.load(models_dir / "kmeans_model.pkl")
+        km_centroids = km.cluster_centers_.astype(np.float32)
 
-    # ── 2. PCA 2D ─────────────────────────────────────────────────────────────
-    pca_coords, pca_model = reduce_pca(embeddings, n_components=2,
-                                        random_state=random_state)
+    # 3. PCA
+    pca_coords, pca_model = reduce_pca(embeddings_scaled, random_state=random_state)
 
-    # ── 3. Variance expliquée (PCA refittée sur min(50, D) composantes) ───────
-    d = embeddings.shape[1]
-    n_var = min(50, d, len(embeddings))
-    pca_var = PCA(n_components=n_var, random_state=random_state)
-    pca_var.fit(embeddings)
-    plot_variance_explained(pca_var, figures_dir / "variance_explained.png")
-
-    # ── 4 & 5. Figures PCA ────────────────────────────────────────────────────
-    plot_embeddings_raw(pca_coords, "PCA", figures_dir / "pca_raw.png")
-    plot_embeddings_by_label(
-        pca_coords, labels, "PCA",
-        figures_dir / "pca_by_label.png",
+    # 4. Scatter PCA
+    plot_clusters_pca(
+        pca_coords, cluster_labels, k, metadata,
+        figures_dir / "clusters_pca_final.png",
+        cluster_names=cluster_names,
     )
 
-    # ── 6. t-SNE (optionnel) ──────────────────────────────────────────────────
-    tsne_coords: "np.ndarray | None" = None
+    # 5. t-SNE (optionnel)
+    tsne_coords = None
     if run_tsne:
         tsne_coords = reduce_tsne(
-            embeddings,
+            embeddings_scaled,
             perplexity=tsne_perplexity,
             n_iter=tsne_n_iter,
             random_state=random_state,
         )
-        plot_embeddings_raw(tsne_coords, "t-SNE", figures_dir / "tsne_raw.png")
-        plot_embeddings_by_label(
-            tsne_coords, labels, "t-SNE",
-            figures_dir / "tsne_by_label.png",
+        plot_clusters_tsne(
+            tsne_coords, cluster_labels, k, metadata,
+            figures_dir / "clusters_tsne_final.png",
+            cluster_names=cluster_names,
         )
 
-    # ── Résumé terminal ───────────────────────────────────────────────────────
-    print("\n=== Module B — Étape 2 terminée ===")
+    # 6. Grille images représentatives
+    plot_representative_images(
+        embeddings_scaled, cluster_labels, km_centroids,
+        data_dir, metadata, k,
+        n_samples=n_representative,
+        out_path=figures_dir / "clusters_representative_images.png",
+        cluster_names=cluster_names,
+    )
+
+    # 7. Distribution confiance
+    plot_confidence_distribution(
+        metadata, k,
+        figures_dir / "clusters_confidence_dist.png",
+    )
+
+    print("\n=== Module B — Étape 5 terminée ===")
     print(f"Figures générées dans : {figures_dir}")
-    print("  pca_raw.png, pca_by_label.png, variance_explained.png")
+    print("  clusters_pca_final.png        (§4.2 — PCA colorée par cluster)")
     if run_tsne:
-        print("  tsne_raw.png, tsne_by_label.png")
-    print("Prêt pour le clustering K-Means (Étape 3)")
+        print("  clusters_tsne_final.png       (t-SNE si run_tsne=True)")
+    print("  clusters_representative.png   (inspection visuelle qualitative)")
+    print("  clusters_confidence_dist.png  (distribution confiance → états MDP)")
+    print()
+    print("Ces figures sont prêtes pour le rapport LaTeX (§L3) et la soutenance (§5).")
+    print("Prêt pour : modules/module_b/interpret_clusters.py")
 
     return {
-        "pca_coords":  pca_coords,
-        "pca_model":   pca_model,
-        "tsne_coords": tsne_coords,
-        "embeddings":  embeddings,
-        "metadata":    metadata,
+        "pca_coords":     pca_coords,
+        "tsne_coords":    tsne_coords,
+        "cluster_labels": cluster_labels,
+        "k":              k,
+        "metadata":       metadata,
     }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CLI
+# CLI — SOUTENANCE §5 : jury peut demander PCA ou t-SNE en direct
 # ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
@@ -418,21 +538,26 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     parser = argparse.ArgumentParser(
-        description="Module B Étape 2 — Réduction de dimension et visualisation"
+        description="Module B Étape 5 — Visualisation clusters (§4.2 PlateVision)"
     )
     parser.add_argument("--data-dir",        type=Path,  default=_DEFAULT_DATA)
+    parser.add_argument("--models-dir",      type=Path,  default=_DEFAULT_MODELS)
     parser.add_argument("--figures-dir",     type=Path,  default=_DEFAULT_FIGURES)
+    parser.add_argument("--no-tsne",         action="store_true",
+                        help="Skip t-SNE (long si N > 5000)")
     parser.add_argument("--tsne-perplexity", type=float, default=30.0)
     parser.add_argument("--tsne-n-iter",     type=int,   default=1000)
-    parser.add_argument("--no-tsne",         action="store_true")
+    parser.add_argument("--n-representative",type=int,   default=8)
     parser.add_argument("--random-state",    type=int,   default=42)
     args = parser.parse_args()
 
     run_visualization_pipeline(
-        data_dir        = args.data_dir,
-        figures_dir     = args.figures_dir,
-        tsne_perplexity = args.tsne_perplexity,
-        tsne_n_iter     = args.tsne_n_iter,
-        run_tsne        = not args.no_tsne,
-        random_state    = args.random_state,
+        data_dir         = args.data_dir,
+        models_dir       = args.models_dir,
+        figures_dir      = args.figures_dir,
+        run_tsne         = not args.no_tsne,
+        tsne_perplexity  = args.tsne_perplexity,
+        tsne_n_iter      = args.tsne_n_iter,
+        n_representative = args.n_representative,
+        random_state     = args.random_state,
     )
