@@ -25,6 +25,20 @@ import logging
 import sys
 from pathlib import Path
 
+
+def _resolve_yolo_device(device: str) -> str:
+    """
+    Ultralytics n'accepte pas "auto" — traduit vers "0" (GPU) ou "cpu".
+    PyTorch accepte "auto" mais pas l'argument --device de YOLO CLI/API.
+    """
+    if device != "auto":
+        return device
+    try:
+        import torch
+        return "0" if torch.cuda.is_available() else "cpu"
+    except ImportError:
+        return "cpu"
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -131,7 +145,7 @@ def run_module_a2(args) -> None:
         run_yolo_training_pipeline(
             epochs=args.epochs,
             batch=args.batch,
-            device=args.device,
+            device=_resolve_yolo_device(args.device),
         )
 
     elif args.evaluate:
@@ -209,7 +223,8 @@ def run_full_pipeline(args) -> None:
     # Étape 3 — Module A2
     logger.info("--- Étape 3/4 : Module A2 — YOLO+OCR ---")
     from modules.module_a.yolo_ocr_pipeline import run_yolo_training_pipeline
-    run_yolo_training_pipeline(epochs=50, batch=16, device="auto")
+    run_yolo_training_pipeline(epochs=50, batch=16,
+                               device=_resolve_yolo_device("auto"))
 
     # Étape 4 — Comparaison
     logger.info("--- Étape 4/5 : Évaluation comparative ---")
