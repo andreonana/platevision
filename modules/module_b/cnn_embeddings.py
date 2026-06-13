@@ -400,19 +400,35 @@ def save_embeddings(
     embeddings: np.ndarray,
     labels: np.ndarray,
     out_dir: Path = Path("data/processed"),
+    split_tags: "list[str] | None" = None,
 ) -> None:
-    """Sauvegarde embeddings.npy et embeddings_labels.npy."""
+    """
+    Sauvegarde embeddings.npy, embeddings_labels.npy et metadata.csv.
+    split_tags : liste de longueur N avec 'train'/'val'/'test' par sample.
+    """
+    import pandas as pd
+
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     emb_path   = out_dir / "embeddings.npy"
     label_path = out_dir / "embeddings_labels.npy"
+    meta_path  = out_dir / "metadata.csv"
 
     np.save(emb_path,   embeddings)
     np.save(label_path, labels)
 
+    label_names = [str(i) for i in range(10)] + [chr(ord("A") + i) for i in range(26)]
+    meta = pd.DataFrame({
+        "label_int":  labels.astype(np.int32),
+        "label_char": [label_names[i] if i < len(label_names) else "?" for i in labels],
+        "split":      split_tags if split_tags is not None else ["unknown"] * len(labels),
+    })
+    meta.to_csv(meta_path, index=False, encoding="utf-8")
+
     logger.info("embeddings.npy sauvegardé : shape=%s → %s", embeddings.shape, emb_path)
     logger.info("embeddings_labels.npy    : shape=%s → %s", labels.shape, label_path)
+    logger.info("metadata.csv sauvegardé  : %d lignes → %s", len(meta), meta_path)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -471,10 +487,15 @@ def run_cnn_embedding_pipeline(
     # ── 4. Extraction sur tout le dataset ─────────────────────────────────────
     X_all = np.concatenate([X_train, X_val, X_test], axis=0)
     y_all = np.concatenate([y_train, y_val, y_test], axis=0)
+    split_tags = (
+        ["train"] * len(X_train)
+        + ["val"]   * len(X_val)
+        + ["test"]  * len(X_test)
+    )
     embeddings = extract_embeddings(model, X_all, batch_size=batch_size, device=dev_str)
 
     # ── 5. Sauvegarde ─────────────────────────────────────────────────────────
-    save_embeddings(embeddings, y_all, out_dir)
+    save_embeddings(embeddings, y_all, out_dir, split_tags=split_tags)
 
     print("\n=== Module B — Étape B0 terminée ===")
     print(f"Modèle : {model_path}")
