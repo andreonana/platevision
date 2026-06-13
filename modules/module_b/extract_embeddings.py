@@ -1,3 +1,4 @@
+# Vérifié le 2026-06-13 — aucune modification nécessaire
 """
 Module B — Étape 1 : Extraction des embeddings CNN (CharEmbeddingCNN, couche FC1, 256D)
 PlateVision / MINT-DGI Cameroun
