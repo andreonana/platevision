@@ -1,6 +1,6 @@
 # PlateVision — Configuration YOLOv8
 # Généré automatiquement par data/prepare_datasets.py
-path: /home/ems/Documents/projet IA/platevision/data/processed
+path: C:\Users\basil\Desktop\Projet_IA\platevision\data\processed
 train: images/train
 val: images/val
 test: images/test
