@@ -1,101 +1,111 @@
-# ==============================================================================
+# =============================================================================
 # PlateVision — .gitignore
-# Fichiers et dossiers exclus du versionnement Git
-# ==============================================================================
+# Python / Machine Learning / Vision par Ordinateur
+# =============================================================================
 
-# --- Environnements virtuels Python ---
+# -----------------------------------------------------------------------------
+# Environnements virtuels
+# -----------------------------------------------------------------------------
 venv/
 .venv/
 env/
-.env
+.env/
 ENV/
 env.bak/
 venv.bak/
 
-# Variables d'environnement (garder uniquement .env.example)
-# NE PAS versionner .env (contient des chemins locaux et secrets)
+# Variables d'environnement (contient des chemins locaux sensibles)
 .env
+# Exception : garder le template
 !.env.example
 
-# --- Données lourdes (à télécharger séparément, voir data/README_data.md) ---
+# -----------------------------------------------------------------------------
+# Données lourdes (à télécharger séparément — voir data/README_data.md)
+# -----------------------------------------------------------------------------
 data/raw/
-data/processed/*.jpg
-data/processed/*.jpeg
-data/processed/*.png
-data/processed/*.mp4
-data/processed/*.avi
-data/annotations/*.xml
+data/processed/
+data/annotations/
+# Conserver uniquement les fichiers de documentation
+!data/README_data.md
+!data/**/.gitkeep
 
-# --- Poids et checkpoints de modèles entraînés ---
+# -----------------------------------------------------------------------------
+# Poids des modèles entraînés (binaires lourds)
+# -----------------------------------------------------------------------------
 models/weights/
 *.pt
 *.pth
-*.ckpt
+*.onnx
+*.h5
 *.pkl
 *.joblib
-*.h5
-*.hdf5
+# Conserver les fichiers de configuration YAML
+!models/configs/
 
-# Embeddings sauvegardés (peuvent être régénérés)
+# Embeddings numpy
 *.npy
 *.npz
 
-# --- Cache Python ---
+# -----------------------------------------------------------------------------
+# Cache Python
+# -----------------------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
+*.pyc
+*.pyo
+*.pyd
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
 
-# --- Logs et runs d'entraînement ---
-# YOLO / Ultralytics
+# -----------------------------------------------------------------------------
+# Logs et checkpoints d'entraînement
+# -----------------------------------------------------------------------------
 runs/
-# MLflow
 mlruns/
-# Weights & Biases
 wandb/
-# TensorBoard
-logs/
-*.log
 lightning_logs/
+checkpoints/
+*.log
+logs/
 
-# --- Notebooks Jupyter avec outputs ---
-# IMPORTANT : Pour garder les notebooks propres avant commit :
-#   jupyter nbconvert --clear-output --inplace notebooks/*.ipynb
-# Ou utiliser : nbstripout (pip install nbstripout && nbstripout --install)
-# Les fichiers .ipynb sont versionnés SANS leurs cellules de sortie
+# -----------------------------------------------------------------------------
+# Notebooks Jupyter — Nettoyer les outputs avant commit
+# (utiliser : jupyter nbconvert --clear-output --inplace notebooks/*.ipynb)
+# -----------------------------------------------------------------------------
+# Décommenter pour ignorer tous les outputs automatiquement :
+# *.ipynb
+# Pour garder les notebooks mais supprimer les outputs, utiliser pre-commit
 .ipynb_checkpoints/
 */.ipynb_checkpoints/
 
-# --- IDE et éditeurs ---
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-.project
-.pydevproject
-.spyderproject.cfg
-.spyproject/
-.ropeproject/
+# -----------------------------------------------------------------------------
+# Distribution / packaging Python
+# -----------------------------------------------------------------------------
+dist/
+build/
+*.egg-info/
+*.egg
+MANIFEST
 
-# --- Fichiers système ---
+# -----------------------------------------------------------------------------
+# Outils de développement
+# -----------------------------------------------------------------------------
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# -----------------------------------------------------------------------------
+# Fichiers système
+# -----------------------------------------------------------------------------
 .DS_Store
 .DS_Store?
 ._*
@@ -104,29 +114,14 @@ lightning_logs/
 ehthumbs.db
 Thumbs.db
 desktop.ini
+*~
 
-# --- Rapports générés automatiquement ---
-reports/DSD/*.pdf
-reports/gestion_projet/*.pdf
-reports/rapport_technique/*.pdf
-
-# --- Fichiers temporaires ---
+# -----------------------------------------------------------------------------
+# Fichiers temporaires et archives
+# -----------------------------------------------------------------------------
 *.tmp
-*.temp
-*.bak
 *.swp
-
-# --- Coverage et tests ---
-.coverage
-.coverage.*
-htmlcov/
-.tox/
-.cache/
-.pytest_cache/
-nosetests.xml
-coverage.xml
-*.cover
-
-# --- Documentation générée ---
-docs/_build/
-site/
+*.bak
+*.zip
+*.tar.gz
+*.rar

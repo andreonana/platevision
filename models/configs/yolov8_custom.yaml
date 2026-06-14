@@ -1,0 +1,30 @@
+# Configuration YOLOv8 — Dataset personnalisé PlateVision
+# Adapté pour la détection de plaques d'immatriculation camerounaises
+
+# Chemins des données (relatifs à la racine du projet)
+path: data/
+train: processed/train/images
+val: processed/val/images
+test: processed/test/images
+
+# Nombre de classes
+nc: 1
+
+# Noms des classes
+names:
+  0: license_plate
+
+# Hyperparamètres d'entraînement recommandés pour PlateVision
+# (à ajuster selon les résultats sur le dataset final)
+# lr0: 0.01          # Taux d'apprentissage initial
+# lrf: 0.01          # Taux d'apprentissage final (lr0 * lrf)
+# momentum: 0.937
+# weight_decay: 0.0005
+# warmup_epochs: 3
+# warmup_momentum: 0.8
+# box: 7.5           # Poids de la perte de localisation
+# cls: 0.5           # Poids de la perte de classification
+# dfl: 1.5           # Poids de la perte de distribution focale
+# epochs: 100
+# batch: 16
+# imgsz: 640

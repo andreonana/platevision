@@ -1,124 +1,128 @@
-# 🚗 PlateVision — Reconnaissance Automatique de Plaques d'Immatriculation
+# PlateVision 🚗
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)
-![Licence](https://img.shields.io/badge/Licence-Académique-green)
-![Institution](https://img.shields.io/badge/Institution-UCAC--ICAM%20%2F%20ULC--ICAM-orange)
+![Licence](https://img.shields.io/badge/Licence-Académique%20UCAC--ICAM-green)
+![Statut](https://img.shields.io/badge/Statut-En%20développement-orange)
+
+> **Système de Reconnaissance Automatique de Plaques d'Immatriculation**
+> Projet IA — UCAC-ICAM / ULC-ICAM — MINT & DGI Cameroun
 
 ---
 
-## Description du Projet
+## Contexte institutionnel
 
-**PlateVision** est un système d'intelligence artificielle pour la **reconnaissance automatique de plaques d'immatriculation** de véhicules, développé dans le cadre du projet académique PSTNAC 2023-2028.
+PlateVision s'inscrit dans le cadre de la **Politique Sectorielle des Technologies Numériques et de l'Administration en Ligne du Cameroun (PSTNAC 2023–2028)**, portée par le **Ministère des Postes et Télécommunications (MINT)** et la **Direction Générale des Impôts (DGI)**.
 
-Ce système vise à appuyer les missions du **MINT** (Ministère des Infrastructures et du Transport) et de la **DGI** (Direction Générale des Impôts) du Cameroun pour :
-- L'identification automatique des véhicules aux postes de contrôle
-- L'automatisation de la vérification de conformité fiscale (vignette, assurance)
-- La réduction des fraudes liées aux plaques falsifiées
-- La collecte de données statistiques de mobilité urbaine
-
----
-
-## Contexte Institutionnel
-
-Ce projet s'inscrit dans la **Politique Sectorielle des Transports et des Nouvelles Activités Connexes (PSTNAC 2023-2028)** du Cameroun. Il est développé par des étudiants de **UCAC-ICAM / ULC-ICAM** dans le cadre d'un projet intensif de 4 jours.
-
-Les partenaires institutionnels cibles sont :
-| Institution | Utilisation attendue |
-|---|---|
-| MINT | Contrôle routier, identification véhicules |
-| DGI | Vérification fiscale (vignette, patente) |
+L'objectif est de doter les services publics camerounais d'un système intelligent capable de :
+- **Détecter** automatiquement les plaques d'immatriculation sur des images ou flux vidéo
+- **Reconnaître** les caractères alphanumériques par OCR
+- **Classifier** les véhicules selon les procédures MINT/DGI
+- **Optimiser** les flux de contrôle grâce à un modèle de décision séquentielle (MDP)
+- **Analyser** les implications éthiques du déploiement en contexte africain
 
 ---
 
-## Architecture des Modules
+## Architecture du projet — Progression des modules
 
 ```
-Données Brutes (Images/Vidéos)
+Données brutes (images/vidéos)
+        │
+        ▼
+┌───────────────────┐
+│  PREPROCESSING    │  Augmentation, normalisation, extraction de features
+└────────┬──────────┘
          │
          ▼
-[Prétraitement] ── augmentation, normalisation, extraction features
+┌───────────────────────────────────────────────────────────┐
+│  MODULE A — Détection & Reconnaissance                    │
+│  A1 : Naïves Bayes (classification baseline)              │
+│  A2 : YOLOv8 + EasyOCR (pipeline de production)          │
+│  Métriques : mAP, CER, WER                                │
+└────────┬──────────────────────────────────────────────────┘
+         │  embeddings CNN
+         ▼
+┌───────────────────────────────────────────────────────────┐
+│  MODULE B — Analyse non supervisée                        │
+│  K-Means sur embeddings CNN                               │
+│  Visualisation PCA / t-SNE                                │
+│  Correspondance clusters → procédures MINT/DGI            │
+└────────┬──────────────────────────────────────────────────┘
+         │  politique de décision
+         ▼
+┌───────────────────────────────────────────────────────────┐
+│  MODULE C — Prise de décision (MDP)                       │
+│  Définition états, actions, récompenses                   │
+│  Value Iteration vs Policy Iteration                      │
+│  Analyse de sensibilité au facteur γ                      │
+└────────┬──────────────────────────────────────────────────┘
          │
          ▼
-┌────────────────────────────────────────────┐
-│  MODULE A — Détection & Reconnaissance     │
-│  A1 : Classifieur Naïves Bayes            │
-│  A2 : Pipeline YOLO + OCR                 │
-│  Métriques : mAP, CER, WER               │
-└────────────────────┬───────────────────────┘
-                     │
-                     ▼
-┌────────────────────────────────────────────┐
-│  MODULE B — Analyse Non Supervisée        │
-│  K-Means sur embeddings CNN               │
-│  Visualisation PCA / t-SNE               │
-│  Interprétation → procédures MINT/DGI    │
-└────────────────────┬───────────────────────┘
-                     │
-                     ▼
-┌────────────────────────────────────────────┐
-│  MODULE C — Décision par MDP              │
-│  Value Iteration / Policy Iteration       │
-│  Comparaison VI vs PI, sensibilité γ      │
-└────────────────────┬───────────────────────┘
-                     │
-                     ▼
-┌────────────────────────────────────────────┐
-│  MODULE D — Éthique & Gouvernance         │
-│  Analyse biais, surveillance, RGPD        │
-│  Carnet de bord J1 → J4                  │
-└────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│  MODULE D — Éthique & Gouvernance IA                      │
+│  Analyse biais, surveillance, conformité                  │
+│  Carnet de bord quotidien                                 │
+└───────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## Installation
 
-### Prérequis
-
-- Python 3.10 ou supérieur
-- Git
-- (Recommandé) GPU NVIDIA avec CUDA 11.8+ pour l'entraînement YOLO
-
-### Étapes d'installation
+### 1. Cloner le dépôt
 
 ```bash
-# 1. Cloner le dépôt
 git clone https://github.com/andreonana/platevision.git
 cd platevision
+```
 
-# 2. Créer un environnement virtuel
-python -m venv venv
+### 2. Créer un environnement virtuel
 
-# Activer l'environnement (Linux/macOS)
+```bash
+# Linux / macOS / WSL
+python3.10 -m venv venv
 source venv/bin/activate
 
-# Activer l'environnement (Windows CMD)
-venv\Scripts\activate.bat
+# Windows (PowerShell)
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+```
 
-# Activer l'environnement (Windows PowerShell)
-venv\Scripts\Activate.ps1
+### 3. Installer les dépendances
 
-# 3. Installer les dépendances
+```bash
+pip install --upgrade pip
 pip install -r requirements.txt
+```
 
-# 4. Configurer les variables d'environnement
+### 4. Configurer les variables d'environnement
+
+```bash
 cp .env.example .env
 # Éditer .env avec vos chemins locaux
 ```
 
+### 5. Télécharger le dataset
+
+Consulter `data/README_data.md` pour les instructions de téléchargement.
+
 ---
 
-## Utilisation — Interface en Ligne de Commande
+## Utilisation — Interface ligne de commande
 
 ```bash
-# Module A — Détection et reconnaissance
+# Module A — Détection et reconnaissance (Naïves Bayes baseline)
 python main.py --module A --input data/processed/ --output reports/
 
-# Module B — Clustering et visualisation
+# Module A — Pipeline YOLO + OCR complet
+python main.py --module A2 --input data/processed/ --output reports/
+
+# Module B — Clustering sur embeddings
 python main.py --module B --embeddings models/embeddings.npy
 
-# Module C — MDP (Value Iteration ou Policy Iteration)
+# Module C — MDP avec Value Iteration, γ=0.9
 python main.py --module C --gamma 0.9 --algorithm VI
+
+# Module C — MDP avec Policy Iteration
 python main.py --module C --gamma 0.95 --algorithm PI
 
 # Pipeline complet sur une vidéo
@@ -127,57 +131,54 @@ python main.py --pipeline full --input data/raw/video.mp4
 
 ---
 
-## Structure du Dépôt
-
-```
-platevision/
-├── data/               # Données (raw non versionnées, processed versionnées)
-├── modules/            # Code source par module IA
-│   ├── module_a/       # Détection + OCR
-│   ├── module_b/       # Clustering
-│   ├── module_c/       # MDP
-│   └── module_d/       # Éthique + logbook
-├── preprocessing/      # Scripts de prétraitement
-├── models/             # Poids entraînés et configs YOLO
-├── notebooks/          # Jupyter pour expérimentations
-├── reports/            # Livrables L1, L2, L3
-├── tests/              # Tests unitaires
-└── main.py             # Point d'entrée CLI
-```
-
----
-
 ## Livrables
 
 | Code | Livrable | Description | Échéance |
 |------|----------|-------------|----------|
-| L1 | Document de Sélection du Dataset (DSD) | Justification du dataset choisi, statistiques, exemples | Jour 1 |
-| L2 | Document de Gestion de Projet | Gantt, PERT, répartition rôles, analyse risques | Jour 1 |
-| L3 | Rapport Technique Intégré | Documentation complète modules A→D, résultats, analyse | Jour 4 |
-| L4 | Code Source Documenté | Dépôt GitHub complet avec historique de commits | Jour 4 |
-| L5 | Présentation Soutenance | Slides + démonstration live du pipeline | Jour 5 |
+| **L1** | Document de Sélection du Dataset (DSD) | Justification du choix du dataset, statistiques, split | Jour 1 |
+| **L2** | Plan de Gestion de Projet | Gantt, PERT, rôles, matrice des risques | Jour 1 |
+| **L3** | Rapport Technique Intégré | Modules A → D, résultats, analyses | Jour 4 |
+| **L4** | Code Source & Dépôt Git | Historique propre, branches, tests | Jour 4 |
+| **L5** | Présentation Soutenance | Slides, démo live, réponses jury | Jour 5 |
 
 ---
 
 ## Équipe
 
-| Étudiant | Rôle | Module(s) responsable(s) | Branche Git |
-|----------|------|--------------------------|-------------|
-| Étudiant 1 | Développeur IA | Module A1 — Naïves Bayes | `feature/module-a` |
-| Étudiant 2 | Développeur IA | Module A2 — YOLO + OCR | `feature/module-a` |
-| Étudiant 3 | Développeur ML | Module B — Clustering | `feature/module-b` |
-| Étudiant 4 | Développeur IA | Module C — MDP | `feature/module-c` |
-| Étudiant 5 | Chef de projet | Module D — Éthique + coordination | `feature/module-d` |
+| Étudiant | Rôle | Module(s) | Branche Git |
+|----------|------|-----------|-------------|
+| NKE GOUETH | Chef de projet | Module A1 (Naïves Bayes) | `feature/module-a` |
+| ELIE NJOCK| membre | Module A2 (YOLO + OCR) | `feature/module-a` |
+| ALI YOUSSOUF | membre| Module B (Clustering) | `feature/module-b` |
+| FOUDA BASILE | membre| Module C (MDP) | `feature/module-c` |
+| NAPANI MAEL | membre | Module D + coordination | `feature/module-d` |
 
 ---
 
-## Téléchargement du Dataset
+## Structure du dépôt
 
-Voir [`data/README_data.md`](data/README_data.md) pour les instructions détaillées.
+```
+platevision/
+├── data/               # Données (raw non versionnées)
+├── modules/            # Code source des 4 modules IA
+├── preprocessing/      # Pipeline de prétraitement
+├── models/             # Poids et configurations des modèles
+├── notebooks/          # Notebooks Jupyter d'expérimentation
+├── reports/            # Livrables documents (DSD, Gantt, rapport)
+├── tests/              # Tests unitaires pytest
+├── main.py             # Point d'entrée CLI
+└── requirements.txt    # Dépendances versionnées
+```
 
 ---
 
-## Licence
+## Références
 
-Projet académique — Usage éducatif uniquement.
-© 2024 UCAC-ICAM / ULC-ICAM — Cameroun
+- YOLOv8 : [Ultralytics Documentation](https://docs.ultralytics.com)
+- EasyOCR : [GitHub JaidedAI/EasyOCR](https://github.com/JaidedAI/EasyOCR)
+- PSTNAC 2023-2028 : Ministère des Postes et Télécommunications du Cameroun
+- MINT Cameroun : [www.minpostel.gov.cm](http://www.minpostel.gov.cm)
+
+---
+
+*Projet académique — UCAC-ICAM / ULC-ICAM — 2026*
