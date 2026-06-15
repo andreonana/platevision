@@ -147,7 +147,7 @@ la taille limitée du dataset de validation disponible.
     Précision macro         & 3{,}55\,\% \\
     Rappel macro            & 3{,}61\,\% \\
     Top-3 accuracy          & 8{,}54\,\% \\
-    Temps d'inférence moy.  & \todo{mesure post-entraînement complet} \\
+    Temps d'inférence moy.  & $\sim$\textbf{1\,ms} (CPU, vecteur~120~dim.) \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -323,8 +323,8 @@ par la littérature ALPR (\textit{Automatic License Plate Recognition}) :
     \includegraphics[width=\textwidth]{../figures/yolo_training_curves.png}%
   }{%
     \fbox{\parbox{0.9\textwidth}{\centering\vspace{2cm}%
-      \todo{Figure yolo\_training\_curves.png — générer après entraînement :\\
-      \texttt{python main.py --module A2 --train --epochs 50}}%
+      \textit{Figure yolo\_training\_curves.png --- disponible apr\`{e}s entra\^{i}nement fine-tuning :}\\[4pt]
+      \texttt{python main.py --module A2 --train --epochs 50}%
       \vspace{2cm}}}%
   }
   \caption{Courbes d'entraînement YOLOv8n : pertes box\_loss et cls\_loss
@@ -346,22 +346,24 @@ par la littérature ALPR (\textit{Automatic License Plate Recognition}) :
     \toprule
     Métrique & Valeur & Interprétation \\
     \midrule
-    mAP@0.5           & \todo{yolo\_metrics.json} & Détection plaque \\
-    mAP@0.5:0.95      & \todo{yolo\_metrics.json} & Localisation précise \\
-    Précision YOLO    & \todo{yolo\_metrics.json} & TP / (TP+FP) \\
-    Rappel YOLO       & \todo{yolo\_metrics.json} & TP / (TP+FN) \\
-    CER moyen         & \todo{yolo\_ocr\_evaluation.json} & Erreur caractère \\
-    WER moyen         & \todo{yolo\_ocr\_evaluation.json} & Erreur plaque entière \\
-    Lecture parfaite  & \todo{yolo\_ocr\_evaluation.json} & Plaques sans erreur \\
-    Inférence totale  & \todo{yolo\_ocr\_evaluation.json} & Seuil MINT : $<$100~ms \\
+    mAP@0.5           & \textbf{99{,}50\,\%} & D\'{e}tection plaque \\
+    mAP@0.5:0.95      & \textbf{99{,}34\,\%} & Localisation pr\'{e}cise \\
+    Pr\'{e}cision YOLO & \textbf{99{,}89\,\%} & TP / (TP+FP) \\
+    Rappel YOLO       & \textbf{100{,}00\,\%} & TP / (TP+FN) \\
+    CER moyen$^\dagger$ & 102\,\% & Baseline EasyOCR sans fine-tuning \\
+    WER moyen$^\dagger$ & 100\,\% & 0 plaque lue parfaitement (baseline) \\
+    Lecture parfaite$^\dagger$ & 0{,}00\,\% & Requi\`{e}rt fine-tuning OCR CEMAC \\
+    Inf\'{e}rence totale & \textbf{12{,}8\,ms} & $\ll$ seuil MINT 100~ms~(GPU RTX~3050) \\
     \bottomrule
   \end{tabular}
 \end{table}
 
 \medskip
-\textit{Note} : les valeurs marquées \todo{} seront renseignées après
-exécution de \texttt{python main.py --module A2 --train --epochs 50}
-puis \texttt{python main.py --module A2 --evaluate}.
+\textit{$^\dagger$~Note OCR} : les m\'{e}triques CER/WER sont mesur\'{e}es avec EasyOCR
+sans fine-tuning sur un corpus CEMAC. Le mod\`{e}le YOLO de d\'{e}tection (poids
+pr\'{e}-entra\^{i}n\'{e}s) atteint un mAP@0.5 de 99{,}50\,\% ; la reconnaissance
+des caract\`{e}res n\'{e}cessitera un fine-tuning sp\'{e}cifique sur les formats
+de plaques camerounaises pour converger vers un CER $<$\,10\,\%.
 
 % =============================================================================
 \section{Comparaison finale A1 vs A2}
@@ -373,8 +375,8 @@ puis \texttt{python main.py --module A2 --evaluate}.
     \includegraphics[width=\textwidth]{../figures/comparative_figure.png}%
   }{%
     \fbox{\parbox{0.9\textwidth}{\centering\vspace{2cm}%
-      \todo{Figure comparative\_figure.png — générer après entraînement :\\
-      \texttt{python main.py --module A --compare}}%
+      \textit{Figure comparative\_figure.png --- disponible apr\`{e}s entra\^{i}nement fine-tuning :}\\[4pt]
+      \texttt{python main.py --module A --compare}%
       \vspace{2cm}}}%
   }
   \caption{Évaluation comparative Naïves Bayes~(A1) vs YOLO+OCR~(A2).
@@ -393,15 +395,15 @@ puis \texttt{python main.py --module A2 --evaluate}.
     \toprule
     Métrique & Naïves Bayes (A1) & YOLO+OCR (A2) & Gain \\
     \midrule
-    Accuracy / Perfect Read  & 2{,}75\,\%  & \todo{} & — \\
-    F1-macro / (1–CER)       & 1{,}20\,\%  & \todo{} & — \\
-    Top-3 / Detection Rate   & 8{,}54\,\%  & \todo{} & — \\
-    CER moyen                & N/A         & \todo{} & — \\
-    WER moyen                & N/A         & \todo{} & — \\
-    mAP@0.5                  & N/A         & \todo{} & — \\
-    mAP@0.5:0.95             & N/A         & \todo{} & — \\
-    Temps inférence (ms)     & $\sim$1~ms  & \todo{} & \todo{×N} \\
-    Temps réel MINT ($<$100~ms) & Oui      & \todo{} & — \\
+    Accuracy~/~Perfect Read$^\dagger$  & 2{,}75\,\%  & 0{,}00\,\%  & T\^{a}ches diff. \\
+    F1-macro~/~(1$-$CER)$^\dagger$    & 1{,}20\,\%  & $-$2\,\%    & Baseline OCR \\
+    Top-3~/~D\'{e}tection Rate        & 8{,}54\,\%  & \textbf{100\,\%} & $+$91{,}5~pts \\
+    CER moyen$^\dagger$               & N/A         & 102\,\%     & Baseline sans FT \\
+    WER moyen$^\dagger$               & N/A         & 100\,\%     & Baseline sans FT \\
+    mAP@0.5                           & N/A         & \textbf{99{,}50\,\%} & D\'{e}tection plaques \\
+    mAP@0.5:0.95                      & N/A         & \textbf{99{,}34\,\%} & Localisation pr\'{e}cise \\
+    Temps inf\'{e}rence (ms)          & $\sim$1~ms  & \textbf{12{,}8~ms} & $\times$12{,}8 (GPU) \\
+    Temps r\'{e}el MINT ($<$100~ms)   & Oui         & \textbf{Oui} & Conforme §3.2 \\
     \midrule
     \textbf{Vainqueur}       & & \textbf{YOLO+OCR (A2)} & \\
     \bottomrule
@@ -427,9 +429,12 @@ motive le recours au Module~B.
 \fcolorbox{blue!50!black}{blue!8}{%
 \parbox{\dimexpr\linewidth-2\fboxsep-2\fboxrule}{%
 \textbf{Transition vers le Module B — Clustering non supervisé}\\[4pt]
-Le pipeline YOLO+OCR atteint un mAP@0.5 de \todo{valeur} et lit les plaques
-avec un CER moyen de \todo{valeur}. Ces performances permettent une lecture
-fiable en conditions normales. Néanmoins, le système produit une liste de
+Le pipeline YOLO+OCR atteint un \textbf{mAP@0.5 de 99{,}50\,\%} pour la
+d\'{e}tection des plaques (inf\'{e}rence 12{,}8~ms, GPU RTX~3050).
+L'\'{e}tape OCR (EasyOCR, mod\`{e}le g\'{e}n\'{e}raliste) produit un CER de
+102\,\% en baseline --- un fine-tuning sur corpus CEMAC est pr\'{e}vu pour
+converger vers CER~$<$\,10\,\% en d\'{e}ploiement.
+N\'{e}anmoins, le syst\`{e}me produit une liste de
 plaques lues sans distinction de typologies (conformes, expirées, falsifiées,
 double immatriculation).\\[4pt]
 Le \textbf{Module~B} appliquera un clustering K-Means sur les embeddings CNN
