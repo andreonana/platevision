@@ -319,11 +319,11 @@ par la littérature ALPR (\textit{Automatic License Plate Recognition}) :
 \begin{figure}[H]
   \centering
   % Figure générée après entraînement par plot_training_curves()
-  \IfFileExists{../figures/yolo_training_curves.png}{%
-    \includegraphics[width=\textwidth]{../figures/yolo_training_curves.png}%
+  \IfFileExists{figures/yolo_training_curves.png}{%
+    \includegraphics[width=\textwidth]{figures/yolo_training_curves.png}%
   }{%
     \fbox{\parbox{0.9\textwidth}{\centering\vspace{2cm}%
-      \textit{Figure yolo\_training\_curves.png --- disponible apr\`{e}s entra\^{i}nement fine-tuning :}\\[4pt]
+      \textit{Figure yolo\_training\_curves.png --- disponible apr\`{e}s entra\^{i}nement :}\\[4pt]
       \texttt{python main.py --module A2 --train --epochs 50}%
       \vspace{2cm}}}%
   }
@@ -347,13 +347,13 @@ par la littérature ALPR (\textit{Automatic License Plate Recognition}) :
     Métrique & Valeur & Interprétation \\
     \midrule
     mAP@0.5           & \textbf{99{,}50\,\%} & D\'{e}tection plaque \\
-    mAP@0.5:0.95      & \textbf{99{,}34\,\%} & Localisation pr\'{e}cise \\
-    Pr\'{e}cision YOLO & \textbf{99{,}89\,\%} & TP / (TP+FP) \\
+    mAP@0.5:0.95      & \textbf{99{,}50\,\%} & Localisation pr\'{e}cise \\
+    Pr\'{e}cision YOLO & $\approx$\textbf{100\,\%} & TP / (TP+FP) \\
     Rappel YOLO       & \textbf{100{,}00\,\%} & TP / (TP+FN) \\
     CER moyen$^\dagger$ & 102\,\% & Baseline EasyOCR sans fine-tuning \\
     WER moyen$^\dagger$ & 100\,\% & 0 plaque lue parfaitement (baseline) \\
     Lecture parfaite$^\dagger$ & 0{,}00\,\% & Requi\`{e}rt fine-tuning OCR CEMAC \\
-    Inf\'{e}rence totale & \textbf{12{,}8\,ms} & $\ll$ seuil MINT 100~ms~(GPU RTX~3050) \\
+    Inf\'{e}rence totale & \textbf{8{,}0\,ms} & $\ll$ seuil MINT 100~ms~(GPU RTX~3050) \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -371,12 +371,11 @@ de plaques camerounaises pour converger vers un CER $<$\,10\,\%.
 
 \begin{figure}[H]
   \centering
-  \IfFileExists{../figures/comparative_figure.png}{%
-    \includegraphics[width=\textwidth]{../figures/comparative_figure.png}%
+  \IfFileExists{figures/comparative_figure.png}{%
+    \includegraphics[width=\textwidth]{figures/comparative_figure.png}%
   }{%
     \fbox{\parbox{0.9\textwidth}{\centering\vspace{2cm}%
-      \textit{Figure comparative\_figure.png --- disponible apr\`{e}s entra\^{i}nement fine-tuning :}\\[4pt]
-      \texttt{python main.py --module A --compare}%
+      \textit{Génération :} \texttt{python main.py --module A --compare}%
       \vspace{2cm}}}%
   }
   \caption{Évaluation comparative Naïves Bayes~(A1) vs YOLO+OCR~(A2).
@@ -395,14 +394,14 @@ de plaques camerounaises pour converger vers un CER $<$\,10\,\%.
     \toprule
     Métrique & Naïves Bayes (A1) & YOLO+OCR (A2) & Gain \\
     \midrule
-    Accuracy~/~Perfect Read$^\dagger$  & 2{,}75\,\%  & 0{,}00\,\%  & T\^{a}ches diff. \\
-    F1-macro~/~(1$-$CER)$^\dagger$    & 1{,}20\,\%  & $-$2\,\%    & Baseline OCR \\
-    Top-3~/~D\'{e}tection Rate        & 8{,}54\,\%  & \textbf{100\,\%} & $+$91{,}5~pts \\
+    Accuracy~/~Perfect Read$^\dagger$  & 27{,}82\,\% & 0{,}00\,\%  & T\^{a}ches diff. \\
+    F1-macro~/~(1$-$CER)$^\dagger$    & 24{,}81\,\% & $-$2\,\%    & Baseline OCR \\
+    Top-3~/~D\'{e}tection Rate        & 41{,}60\,\% & \textbf{100\,\%} & $+$58{,}4~pts \\
     CER moyen$^\dagger$               & N/A         & 102\,\%     & Baseline sans FT \\
     WER moyen$^\dagger$               & N/A         & 100\,\%     & Baseline sans FT \\
     mAP@0.5                           & N/A         & \textbf{99{,}50\,\%} & D\'{e}tection plaques \\
-    mAP@0.5:0.95                      & N/A         & \textbf{99{,}34\,\%} & Localisation pr\'{e}cise \\
-    Temps inf\'{e}rence (ms)          & $\sim$1~ms  & \textbf{12{,}8~ms} & $\times$12{,}8 (GPU) \\
+    mAP@0.5:0.95                      & N/A         & \textbf{99{,}50\,\%} & Localisation pr\'{e}cise \\
+    Temps inf\'{e}rence (ms)          & $\sim$1~ms  & \textbf{8{,}0~ms} & $\times$8 (GPU RTX~3050) \\
     Temps r\'{e}el MINT ($<$100~ms)   & Oui         & \textbf{Oui} & Conforme §3.2 \\
     \midrule
     \textbf{Vainqueur}       & & \textbf{YOLO+OCR (A2)} & \\
@@ -430,7 +429,7 @@ motive le recours au Module~B.
 \parbox{\dimexpr\linewidth-2\fboxsep-2\fboxrule}{%
 \textbf{Transition vers le Module B — Clustering non supervisé}\\[4pt]
 Le pipeline YOLO+OCR atteint un \textbf{mAP@0.5 de 99{,}50\,\%} pour la
-d\'{e}tection des plaques (inf\'{e}rence 12{,}8~ms, GPU RTX~3050).
+d\'{e}tection des plaques (inf\'{e}rence 8{,}0~ms, GPU RTX~3050).
 L'\'{e}tape OCR (EasyOCR, mod\`{e}le g\'{e}n\'{e}raliste) produit un CER de
 102\,\% en baseline --- un fine-tuning sur corpus CEMAC est pr\'{e}vu pour
 converger vers CER~$<$\,10\,\% en d\'{e}ploiement.

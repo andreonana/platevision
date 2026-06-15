@@ -13,6 +13,15 @@ V^*(s) \leftarrow \max_{a} \left[ R(s,a)
 
 \textbf{Param\`{e}tres utilis\'{'}s :} $\gamma = 0.95$, $\varepsilon = 0.01$, $N = 7$ \'{'}tats, $A = 5$ actions. Convergence en \textbf{281} it\'{'}rations (converg\'{e}).
 
+\IfFileExists{figures/vi_convergence.png}{%
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{figures/vi_convergence.png}
+  \caption{Courbe de convergence Value Iteration --- variation $\Delta V$ par it\'{e}ration
+    ($\gamma=0.95$, $\varepsilon=0.01$). Convergence en 281 it\'{e}rations.}
+  \label{fig:vi_convergence}
+\end{figure}}{}
+
 \begin{table}[H]
 \centering
 \caption{Politique optimale $\pi^*$ --- Value Iteration ($\gamma=0.95$)}
@@ -32,6 +41,45 @@ V^*(s) \leftarrow \max_{a} \left[ R(s,a)
 \bottomrule
 \end{tabular}
 \end{table}
+
+\IfFileExists{figures/vi_value_function.png}{%
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{figures/vi_value_function.png}
+  \caption{Fonction de valeur $V^*(s)$ --- Value Iteration ($\gamma=0.95$).
+    Les \'{e}tats du cluster~2 (plaques expir\'{e}es) pr\'{e}sentent les valeurs
+    les plus \'{e}lev\'{e}es, refl\'{e}tant le potentiel de recouvrement fiscal DGI.}
+  \label{fig:vi_value_function}
+\end{figure}}{}
+
+\begin{table}[H]
+\centering
+\caption{Sensibilit\'{e} au facteur $\gamma$ --- Value Iteration}
+\label{tab:c:vi_sensitivity}
+\begin{tabular}{rrrr}
+\toprule
+$\gamma$ & It\'{e}rations & Converg\'{e} & $\bar{V}^*$ (FCFA) \\
+\midrule
+  0.50 & 17 & Oui & 161\,591 \\
+  0.70 & 32 & Oui & 164\,990 \\
+  0.80 & 50 & Oui & 166\,781 \\
+  0.90 & 105 & Oui & 176\,780 \\
+  0.95 & 281 & Oui & 309\,129 \\
+  0.99 & 1493 & Oui & 1\,553\,100 \\
+
+\bottomrule
+\end{tabular}
+\end{table}
+
+\IfFileExists{figures/vi_gamma_sensitivity.png}{%
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{figures/vi_gamma_sensitivity.png}
+  \caption{Sensibilit\'{e} de Value Iteration au facteur $\gamma$ :
+    nombre d'it\'{e}rations jusqu'\`{a} convergence pour $\gamma \in \{0.50, 0.70, 0.80, 0.90, 0.95, 0.99\}$.
+    La politique $\pi^*$ reste stable pour tout $\gamma \geq 0.70$.}
+  \label{fig:vi_gamma_sensitivity}
+\end{figure}}{}
 
 \paragraph{Interpr\'{e}tation m\'{e}tier MINT/DGI}
 La politique $\pi^*$ obtenue par Value Iteration encode la strat\'{e}gie

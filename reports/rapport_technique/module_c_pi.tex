@@ -21,6 +21,16 @@ Convergence en \textbf{4} it\'{'}ration(s) globale(s)
 
 \textit{Note comparative :} PI converge en \textbf{4} it\'{'}ration(s) globale(s) contre \textbf{281} it\'{'}rations Bellman pour VI à $\gamma=0.95$ --- un rapport de 70:1 en faveur de PI (en it\'{'}rations de politique).
 
+\IfFileExists{figures/pi_convergence.png}{%
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{figures/pi_convergence.png}
+  \caption{Convergence Policy Iteration ($\gamma=0.95$) : nombre de changements
+    de politique par it\'{e}ration globale. Stabilisation en 4 it\'{e}rations
+    (1\,735 it\'{e}rations d'\'{e}valuation cumul\'{e}es).}
+  \label{fig:pi_convergence}
+\end{figure}}{}
+
 \begin{table}[H]
 \centering
 \caption{Politique optimale $\pi^*$ --- Policy Iteration ($\gamma=0.95$)}
@@ -41,6 +51,16 @@ Convergence en \textbf{4} it\'{'}ration(s) globale(s)
 \end{tabular}
 \end{table}
 
+\IfFileExists{figures/pi_value_function.png}{%
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{figures/pi_value_function.png}
+  \caption{Fonction de valeur $V^*(s)$ --- Policy Iteration ($\gamma=0.95$).
+    Identique \`{a} celle obtenue par VI : valeurs \'{e}lev\'{e}es pour les
+    \'{e}tats d'infractions fiscales (cluster~2, plaques expir\'{e}es).}
+  \label{fig:pi_value_function}
+\end{figure}}{}
+
 \begin{table}[H]
 \centering
 \caption{Sensibilit\'{e} au facteur $\gamma$ --- Policy Iteration}
@@ -59,6 +79,17 @@ $\gamma$ & It\'{e}r. globales & It\'{e}r. \'{e}val. cumul & Converg\'{e} & $\bar
 \bottomrule
 \end{tabular}
 \end{table}
+
+\IfFileExists{figures/pi_gamma_sensitivity.png}{%
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{figures/pi_gamma_sensitivity.png}
+  \caption{Sensibilit\'{e} Policy Iteration au facteur $\gamma$ :
+    it\'{e}rations globales et \'{e}valuations cumul\'{e}es.
+    PI reste tr\`{e}s rapide ($\leq 4$ it\'{e}rations globales) quelle que soit
+    la valeur de $\gamma$.}
+  \label{fig:pi_gamma_sensitivity}
+\end{figure}}{}
 
 \paragraph{Interpr\'{e}tation m\'{e}tier MINT/DGI}
 La politique $\pi^*$ obtenue par Policy Iteration confirm que les

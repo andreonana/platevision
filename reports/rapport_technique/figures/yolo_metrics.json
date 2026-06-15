@@ -1,9 +1,9 @@
 {
   "map50": 0.995,
-  "map50_95": 0.9933576443133287,
-  "precision": 0.9988517536423441,
+  "map50_95": 0.9949999999999999,
+  "precision": 0.9999818834977516,
   "recall": 1.0,
-  "inference_ms_mean": 12.248034500009908,
-  "inference_ms_std": 16.016252812848055,
+  "inference_ms_mean": 8.044002200767864,
+  "inference_ms_std": 4.354822637904729,
   "realtime_ok": true
 }

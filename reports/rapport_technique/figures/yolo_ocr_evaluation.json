@@ -8,7 +8,7 @@
   "perfect_reads": 0,
   "perfect_read_rate": 0.0,
   "comparison_nb_vs_yolo_ocr": {
-    "nb_accuracy": 0.027548209366391185,
+    "nb_accuracy": 0.27823691460055094,
     "yolo_ocr_wer": 1.0,
     "improvement": "NB meilleur",
     "nb_limitation": "NB classe des caractères pré-segmentés, inutilisable sans détection préalable"
