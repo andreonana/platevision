@@ -9,17 +9,22 @@ Pipeline intégré A→B→C en temps réel sur flux caméra :
   4. Module C  : MDP détermine l'état (cluster × conf × alerte) → π*(s) = action optimale
 
 Usage :
-  python main.py --demo               # webcam par défaut (index 0)
-  python main.py --demo --camera 1    # caméra index 1
-  python main.py --demo --input video.mp4   # fichier vidéo
-  python main.py --demo --image plaque.jpg  # image statique
+  python main.py --demo                          # webcam par défaut (index 0)
+  python main.py --demo --camera 1               # caméra index 1
+  python main.py --demo --input video.mp4        # fichier vidéo
+  python main.py --demo --input plaque.jpg       # image statique unique
+  python main.py --demo --input dossier/images/  # galerie d'images (diaporama)
 
 Contrôles pendant la démonstration :
   Q / ESC   : quitter
   S         : sauvegarder la frame courante dans reports/figures/
-  ESPACE    : pause / reprendre
+  ESPACE    : pause / reprendre (vidéo) | auto-avance on/off (galerie)
   I         : afficher / masquer le panneau d'information détaillé
   +/-       : ajuster le seuil de détection YOLO
+
+Contrôles supplémentaires en mode galerie :
+  N / →     : image suivante
+  P / ←     : image précédente
 """
 
 from __future__ import annotations
@@ -331,10 +336,12 @@ def _draw_detection(frame: np.ndarray, det: dict, result: dict) -> None:
 
 
 def _draw_panel(canvas: np.ndarray, result: dict | None, fps: float,
-                conf_yolo: float, paused: bool, show_detail: bool) -> None:
+                conf_yolo: float, paused: bool, show_detail: bool,
+                gallery_info: dict | None = None) -> None:
     """
     Dessine le panneau d'information latéral (droite du canvas).
     canvas shape : (H, W_frame + _PANEL_W, 3)
+    gallery_info : {'idx': int, 'total': int, 'filename': str} en mode galerie
     """
     h, full_w = canvas.shape[:2]
     panel_x = full_w - _PANEL_W
@@ -357,14 +364,30 @@ def _draw_panel(canvas: np.ndarray, result: dict | None, fps: float,
     y += step
 
     # ── Statut système ────────────────────────────────────────────────────────
-    status = "PAUSE" if paused else "EN DIRECT"
-    st_col = (0, 165, 255) if paused else (34, 177, 76)
+    if gallery_info:
+        status = f"IMG {gallery_info['idx'] + 1}/{gallery_info['total']}"
+        st_col = (0, 165, 255) if paused else (34, 177, 76)
+    else:
+        status = "PAUSE" if paused else "EN DIRECT"
+        st_col = (0, 165, 255) if paused else (34, 177, 76)
     cv2.putText(canvas, status, (panel_x + 8, y),
                 _FONT, _FONT_MD, st_col, _THICK_B, cv2.LINE_AA)
-    fps_txt = f"  {fps:.1f} FPS"
-    cv2.putText(canvas, fps_txt, (panel_x + 100, y),
-                _FONT, _FONT_SM, (180, 180, 180), _THICK_N, cv2.LINE_AA)
+    if not gallery_info:
+        fps_txt = f"  {fps:.1f} FPS"
+        cv2.putText(canvas, fps_txt, (panel_x + 100, y),
+                    _FONT, _FONT_SM, (180, 180, 180), _THICK_N, cv2.LINE_AA)
     y += step
+
+    if gallery_info:
+        fname = gallery_info["filename"][:28]
+        cv2.putText(canvas, fname, (panel_x + 8, y),
+                    _FONT, _FONT_SM - 0.05, (160, 160, 160), _THICK_N, cv2.LINE_AA)
+        y += step - 4
+        auto_txt = "Auto: OFF (ESPACE)" if paused else "Auto: ON  (ESPACE)"
+        auto_col = (100, 100, 100) if paused else (80, 180, 80)
+        cv2.putText(canvas, auto_txt, (panel_x + 8, y),
+                    _FONT, _FONT_SM - 0.05, auto_col, _THICK_N, cv2.LINE_AA)
+        y += step - 4
 
     conf_txt = f"Seuil YOLO : {conf_yolo:.2f}  (+/- pour ajuster)"
     cv2.putText(canvas, conf_txt, (panel_x + 8, y),
@@ -383,13 +406,24 @@ def _draw_panel(canvas: np.ndarray, result: dict | None, fps: float,
         _draw_panel_result(canvas, result, panel_x, y, full_w, show_detail)
 
     # ── Commandes ─────────────────────────────────────────────────────────────
-    keys = [
-        ("Q/ESC", "Quitter"),
-        ("ESPACE", "Pause"),
-        ("S",     "Sauvegarder"),
-        ("I",     "Detail on/off"),
-        ("+/-",   "Seuil YOLO"),
-    ]
+    if gallery_info:
+        keys = [
+            ("Q/ESC",  "Quitter"),
+            ("N / →",  "Suivante"),
+            ("P / ←",  "Precedente"),
+            ("ESPACE", "Auto on/off"),
+            ("S",      "Sauvegarder"),
+            ("I",      "Detail on/off"),
+            ("+/-",    "Seuil YOLO"),
+        ]
+    else:
+        keys = [
+            ("Q/ESC", "Quitter"),
+            ("ESPACE", "Pause"),
+            ("S",     "Sauvegarder"),
+            ("I",     "Detail on/off"),
+            ("+/-",   "Seuil YOLO"),
+        ]
     y_k = h - len(keys) * 18 - 10
     cv2.line(canvas, (panel_x + 5, y_k - 8), (full_w - 5, y_k - 8), (60, 60, 60), 1)
     for key, desc in keys:
@@ -486,8 +520,148 @@ def _overlay_timestamp(frame: np.ndarray) -> None:
                 _FONT, _FONT_SM - 0.05, (200, 200, 200), 1, cv2.LINE_AA)
 
 
+_IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".JPG", ".JPEG", ".PNG"}
+
+
 # ══════════════════════════════════════════════════════════════════════════════
-# 3. BOUCLE PRINCIPALE
+# 3. MODE GALERIE (diaporama d'images)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def run_gallery_demo(
+    image_dir:   Path,
+    data_dir:    Path  = Path("data/processed"),
+    model_dir:   Path  = Path("models"),
+    figures_dir: Path  = Path("reports/figures"),
+    conf_yolo:   float = 0.25,
+    auto_delay:  int   = 3000,
+) -> None:
+    """
+    Diaporama : parcourt toutes les images d'un dossier et applique le pipeline A→B→C.
+
+    Args:
+        image_dir  : dossier contenant les images
+        auto_delay : délai auto-avance en ms (mode auto, touche ESPACE)
+    """
+    image_dir   = Path(image_dir)
+    figures_dir = Path(figures_dir)
+    figures_dir.mkdir(parents=True, exist_ok=True)
+
+    images = sorted(p for p in image_dir.iterdir() if p.suffix in _IMG_EXTS)
+    if not images:
+        raise FileNotFoundError(f"Aucune image trouvée dans : {image_dir}")
+
+    engine = PlateVisionEngine(data_dir=data_dir, model_dir=model_dir, conf_yolo=conf_yolo)
+
+    idx         = 0
+    auto_mode   = False   # ESPACE bascule l'avance automatique
+    show_detail = True
+    last_result: dict | None = None
+    last_dets:   list[dict]  = []
+    needs_refresh = True
+
+    window_name = "PlateVision — Galerie MINT/DGI"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, 1060, 520)
+
+    print("\n" + "═" * 60)
+    print("  PlateVision — Mode Galerie")
+    print(f"  {len(images)} image(s) dans : {image_dir}")
+    print("  MINT / DGI Cameroun — UCAC-ICAM / ULC-ICAM")
+    print("═" * 60)
+    print("  Commandes : Q=quitter  N/→=suivante  P/←=précédente")
+    print("              ESPACE=auto  S=screenshot  I=détails  +/-=YOLO")
+    print("═" * 60 + "\n")
+
+    while True:
+        # ── Chargement et inférence si nécessaire ────────────────────────────
+        if needs_refresh:
+            img_path = images[idx]
+            frame_orig = cv2.imread(str(img_path))
+            if frame_orig is None:
+                logger.warning("Image illisible : %s", img_path.name)
+                idx = (idx + 1) % len(images)
+                continue
+
+            detections = engine.detect_plates(frame_orig)
+            last_dets  = detections
+            if detections:
+                best = max(detections, key=lambda d: (
+                    (d["bbox"][2] - d["bbox"][0]) * (d["bbox"][3] - d["bbox"][1])
+                ))
+                last_result = engine.classify_plate(best["crop"])
+                logger.info(
+                    "[%d/%d] %s | OCR='%s' | Cluster=%d | Action=%s | V*=%.0f FCFA",
+                    idx + 1, len(images), img_path.name,
+                    last_result["ocr_text"],
+                    last_result["cluster_id"],
+                    last_result["action_code"],
+                    last_result["V_star"],
+                )
+            else:
+                last_result = None
+                logger.info("[%d/%d] %s — aucune plaque détectée", idx + 1, len(images), img_path.name)
+            needs_refresh = False
+
+        # ── Rendu ────────────────────────────────────────────────────────────
+        frame = frame_orig.copy()
+        for det in last_dets:
+            if last_result is not None:
+                _draw_detection(frame, det, last_result)
+        _overlay_timestamp(frame)
+
+        h, w = frame.shape[:2]
+        canvas = np.zeros((h, w + _PANEL_W, 3), np.uint8)
+        canvas[:, :w] = frame
+        gallery_info = {
+            "idx":      idx,
+            "total":    len(images),
+            "filename": images[idx].name,
+        }
+        _draw_panel(canvas, last_result, 0.0, engine.conf_yolo,
+                    paused=not auto_mode, show_detail=show_detail,
+                    gallery_info=gallery_info)
+        cv2.imshow(window_name, canvas)
+
+        # ── Gestion touches ───────────────────────────────────────────────────
+        delay = auto_delay if auto_mode else 0
+        key   = cv2.waitKey(delay) & 0xFF
+
+        if key in (ord("q"), ord("Q"), 27):
+            break
+        elif key in (ord("n"), ord("N"), 83):   # N ou flèche droite
+            idx = (idx + 1) % len(images)
+            needs_refresh = True
+        elif key in (ord("p"), ord("P"), 81):   # P ou flèche gauche
+            idx = (idx - 1) % len(images)
+            needs_refresh = True
+        elif key == ord(" "):
+            auto_mode = not auto_mode
+            logger.info("Mode auto : %s", "ON" if auto_mode else "OFF")
+        elif key in (ord("s"), ord("S")):
+            ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
+            path = figures_dir / f"platevision_galerie_{ts}.png"
+            cv2.imwrite(str(path), canvas)
+            logger.info("Screenshot → %s", path)
+            print(f"  Screenshot → {path}")
+        elif key in (ord("i"), ord("I")):
+            show_detail = not show_detail
+        elif key == ord("+"):
+            engine.set_yolo_conf(+0.05)
+            needs_refresh = True
+        elif key == ord("-"):
+            engine.set_yolo_conf(-0.05)
+            needs_refresh = True
+        elif auto_mode and key == 255:
+            # délai auto-avance expiré → image suivante
+            idx = (idx + 1) % len(images)
+            needs_refresh = True
+
+    cv2.destroyAllWindows()
+    print("\nGalerie terminée.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 4. BOUCLE PRINCIPALE (caméra / vidéo / image statique)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def run_camera_demo(
@@ -662,6 +836,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="PlateVision — Démonstrateur Temps Réel",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Exemples :\n"
+            "  python camera_demo.py                          # webcam\n"
+            "  python camera_demo.py --input video.mp4        # vidéo\n"
+            "  python camera_demo.py --input plaque.jpg       # image unique\n"
+            "  python camera_demo.py --input dossier/images/  # galerie\n"
+            "  python camera_demo.py --input dossier/ --delay 2000  # galerie 2s/img\n"
+        ),
     )
     parser.add_argument(
         "--camera", type=int, default=0,
@@ -669,11 +851,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--input", type=str, default=None,
-        help="Fichier vidéo ou image (remplace --camera)"
+        help="Fichier vidéo, image unique, ou dossier d'images (galerie)"
     )
     parser.add_argument(
         "--conf", type=float, default=0.25,
         help="Seuil de confiance YOLO initial (défaut: 0.25)"
+    )
+    parser.add_argument(
+        "--delay", type=int, default=3000,
+        help="Délai auto-avance en mode galerie, millisecondes (défaut: 3000)"
     )
     parser.add_argument(
         "--data-dir", type=str, default="data/processed",
@@ -689,14 +875,18 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    source = args.input if args.input else args.camera
-    run_camera_demo(
-        source      = source,
+    common = dict(
         data_dir    = Path(args.data_dir),
         model_dir   = Path(args.model_dir),
         figures_dir = Path(args.figures_dir),
         conf_yolo   = args.conf,
     )
+
+    if args.input and Path(args.input).is_dir():
+        run_gallery_demo(image_dir=Path(args.input), auto_delay=args.delay, **common)
+    else:
+        source = args.input if args.input else args.camera
+        run_camera_demo(source=source, **common)
 
 
 if __name__ == "__main__":
