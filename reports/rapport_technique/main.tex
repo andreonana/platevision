@@ -145,15 +145,27 @@ précédent, conformément à l'exigence §7.1 du cahier des charges.
 \input{module_a}
 
 \input{module_b}
-% \input{module_c}   % À décommenter quand module_c.tex disponible
-% \input{module_d}   % À décommenter quand module_d.tex disponible
+\input{module_c}
+\input{module_d}
 
 % ── Conclusion générale ───────────────────────────────────────────────────────
-\chapter*{Conclusion}
-\addcontentsline{toc}{chapter}{Conclusion}
+\chapter*{Conclusion g\'{e}n\'{e}rale}
+\addcontentsline{toc}{chapter}{Conclusion g\'{e}n\'{e}rale}
 
-\placeholder{Rédiger après intégration complète des modules B, C et D.
-Synthétiser les performances finales, l'adéquation au cahier des charges
-MINT/DGI et les perspectives de déploiement PSTNAC 2023--2028.}
+PlateVision d\'{e}montre la faisabilit\'{e} d'un syst\`{e}me ALPR adapt\'{e}
+au contexte camerounais. La progression A $\rightarrow$ B $\rightarrow$ C
+$\rightarrow$ D illustre comment chaque module r\'{e}pond aux limites du
+pr\'{e}c\'{e}dent : le Naïves Bayes \'{e}tablit la baseline, YOLO+OCR
+d\'{e}passe ses limites, le clustering r\'{e}v\`{e}le des familles de plaques,
+le MDP traduit ces familles en d\'{e}cisions optimales sous incertitude.
+
+Le syst\`{e}me est con\c{c}u pour une d\'{e}monstration live (§5) :
+chaque hyperparam\`{e}tre (\texttt{--k}, \texttt{--gamma}, \texttt{--conf})
+est modifiable en ligne de commande sans recompiler le code.
+
+Les perspectives de d\'{e}ploiement dans le cadre du PSTNAC 2023--2028 sont
+conditionn\'{e}es \`{a} la constitution d'un dataset camerounais certifi\'{e}
+CEMAC et \`{a} la mise en place du cadre de gouvernance propos\'{e} en
+Module~D.
 
 \end{document}

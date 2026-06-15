@@ -1,0 +1,307 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{a4paper, left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm}
+\usepackage{booktabs, tabularx, array, longtable}
+\usepackage{float}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{PlateVision --- Gestion de Projet Livrable L2}
+\lhead{UCAC-ICAM / ULC-ICAM}
+\cfoot{\thepage}
+\setlength{\headheight}{14pt}
+\usepackage{hyperref}
+\hypersetup{
+  pdftitle   = {Rapport de Gestion de Projet --- PlateVision},
+  pdfauthor  = {\'{E}quipe PlateVision --- UCAC-ICAM / ULC-ICAM},
+  colorlinks = true,
+  linkcolor  = blue!70!black,
+  urlcolor   = blue!70!black,
+}
+
+\title{\textbf{Rapport de Gestion de Projet}\\[0.5em]
+\large PlateVision --- UCAC-ICAM / ULC-ICAM\\[0.3em]
+\normalsize Livrable L2 --- §6 Cahier des Charges}
+\author{\'{E}quipe PlateVision}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ── Section 1 : Organisation de l'équipe ─────────────────────────────────────
+\section{Organisation de l'\'{e}quipe}
+\label{sec:gp:equipe}
+
+\begin{table}[H]
+\centering
+\caption{Composition de l'\'{e}quipe PlateVision --- r\^{o}les et modules}
+\label{tab:gp:equipe}
+\begin{tabular}{llll}
+\toprule
+\textbf{Membre} & \textbf{R\^{o}le} & \textbf{Module} & \textbf{Comp\'{e}tences mobilis\'{e}es} \\
+\midrule
+NKE GOUETH
+  & Chef de projet
+  & A1 (Naive Bayes)
+  & Python, sklearn, coordination \'{e}quipe \\
+ELIE NJOCK
+  & D\'{e}veloppeur Senior
+  & A2 (YOLO + OCR)
+  & PyTorch, YOLOv8, EasyOCR, vision par ordinateur \\
+ALI YOUSSOUF
+  & Data Scientist
+  & B (Clustering)
+  & sklearn, matplotlib, r\'{e}duction dimensionnelle \\
+FOUDA BASILE
+  & Algorithmes
+  & C (MDP)
+  & NumPy, th\'{e}orie de la d\'{e}cision, MDP from scratch \\
+NAPANI MA\"{E}L
+  & Int\'{e}grateur / Rapporteur
+  & D + coordination
+  & \LaTeX{}, Git, analyse \'{e}thique, r\'{e}daction \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Gouvernance de l'\'{e}quipe}
+NKE GOUETH assure la coordination quotidienne (stand-up 15 min chaque
+matin, d\'{e}bloquer les blocages inter-modules). Les d\'{e}cisions
+techniques importantes sont prises en commun (voir §\ref{sec:gp:decisions}).
+Git est utilis\'{e} comme unique source de v\'{e}rit\'{e} (branche
+\texttt{dataset\_nkegoueth}).
+
+% ── Section 2 : Diagramme de Gantt ───────────────────────────────────────────
+\section{Planification --- Diagramme de Gantt}
+\label{sec:gp:gantt}
+
+\begin{table}[H]
+\centering
+\caption{Diagramme de Gantt PlateVision --- 5 journ\'{e}es}
+\label{tab:gp:gantt}
+\begin{tabular}{p{5cm}ccccc}
+\toprule
+\textbf{T\^{a}che} & \textbf{J1} & \textbf{J2} & \textbf{J3} & \textbf{J4} & \textbf{J5} \\
+\midrule
+\multicolumn{6}{l}{\textit{Transversal}} \\
+\quad Setup Git + environnement  & \textbf{X} & & & & \\
+\quad DSD (Livrable L1)          & \textbf{X} & & & & \\
+\quad Module D (carnet de bord)  & \textbf{X} & \textbf{X} & \textbf{X} & \textbf{X} & \\
+\quad Rapport technique (r\'{e}daction) & & & & \textbf{X} & \\
+\quad Gestion projet (Livrable L2) & & & & \textbf{X} & \\
+\midrule
+\multicolumn{6}{l}{\textit{Module A}} \\
+\quad Pr\'{e}traitement donn\'{e}es      & \textbf{X} & & & & \\
+\quad Naive Bayes (A1)           & \textbf{X} & \textbf{X} & & & \\
+\quad YOLO + OCR (A2)            & & \textbf{X} & & & \\
+\quad Comparaison A1 vs A2       & & \textbf{X} & & & \\
+\midrule
+\multicolumn{6}{l}{\textit{Module B}} \\
+\quad CNN embeddings             & & & \textbf{X} & & \\
+\quad K-Means clustering         & & & \textbf{X} & & \\
+\quad Visualisation (PCA, t-SNE) & & & \textbf{X} & & \\
+\quad Robustesse (k-analysis)    & & & \textbf{X} & & \\
+\midrule
+\multicolumn{6}{l}{\textit{Module C}} \\
+\quad D\'{e}finition \'{e}tats + actions & & & & \textbf{X} & \\
+\quad Matrice transitions + R    & & & & \textbf{X} & \\
+\quad Value Iteration (VI)       & & & & \textbf{X} & \\
+\quad Policy Iteration (PI)      & & & & \textbf{X} & \\
+\quad Comparaison VI vs PI       & & & & \textbf{X} & \\
+\midrule
+\multicolumn{6}{l}{\textit{Soutenance}} \\
+\quad D\'{e}mo live pipeline A$\to$B$\to$C & & & & & \textbf{X} \\
+\quad Pr\'{e}sentation orale      & & & & & \textbf{X} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Note sur la densit\'{e} J4}
+La journ\'{e}e~4 est la plus charg\'{e}e : elle concentre le Module~C complet
+et la r\'{e}daction des livrables. Ceci est intentionnel : le Module~C
+(MDP) d\'{e}pend des r\'{e}sultats du Module~B (clusters), qui ne sont
+disponibles qu'en J3. Le pipeline s\'{e}quentiel A$\to$B$\to$C impose
+ce calendrier.
+
+% ── Section 3 : Diagramme PERT ───────────────────────────────────────────────
+\section{Diagramme PERT}
+\label{sec:gp:pert}
+
+\paragraph{D\'{e}pendances entre t\^{a}ches}
+
+\begin{table}[H]
+\centering
+\caption{D\'{e}pendances PERT --- chemin critique PlateVision}
+\label{tab:gp:pert}
+\begin{tabular}{p{4cm}p{4cm}p{5cm}}
+\toprule
+\textbf{T\^{a}che} & \textbf{D\'{e}pend de} & \textbf{Justification} \\
+\midrule
+DSD             & ---             & Premier livrable, ind\'{e}pendant \\
+Pr\'{e}traitement & DSD           & Dataset s\'{e}lectionn\'{e} avant traitement \\
+A1 (Naive Bayes) & Pr\'{e}traitement & Caract\`{e}res pr\'{e}-d\'{e}coup\'{e}s requis \\
+A2 (YOLO+OCR)  & Pr\'{e}traitement & Images 640$\times$640 requises \\
+Comparaison A1/A2 & A1, A2       & Les deux modules termin\'{e}s \\
+B (CNN embed.) & Comparaison A1/A2 & Meilleur mod\`{e}le s\'{e}lectionn\'{e} \\
+B (K-Means)    & B (CNN embed.) & Embeddings g\'{e}n\'{e}r\'{e}s \\
+B (Visualisation) & B (K-Means) & Clusters attribu\'{e}s \\
+C (\'{E}tats)  & B (K-Means)    & cluster\_id = dimension principale de $\mathcal{S}$ \\
+C (Transitions) & C (\'{E}tats) & $\mathcal{S}$ d\'{e}fini avant $P$ \\
+C (R\'{e}comp.) & C (\'{E}tats) & $\mathcal{S}$ et $\mathcal{A}$ d\'{e}finis \\
+C (VI + PI)    & C (Transitions), C (R\'{e}comp.) & MDP complet requis \\
+Rapport C      & C (VI + PI)    & R\'{e}sultats num\'{e}riques n\'{e}cessaires \\
+Soutenance     & Rapport C, D   & Tous modules termin\'{e}s \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Chemin critique}
+\[
+\text{A2 (YOLO)} \to \text{B (CNN)} \to \text{B (K-Means)}
+\to \text{C (VI+PI)} \to \text{Rapport} \to \text{Soutenance}
+\]
+
+Ce chemin d\'{e}termine la dur\'{e}e minimale du projet. Tout retard
+sur A2 ou B se propage directement au Module~C et aux livrables.
+Le Module~D est parall\`{e}le \`{a} tous les autres modules (carnet de
+bord quotidien).
+
+% ── Section 4 : Matrice des risques ──────────────────────────────────────────
+\section{Matrice des risques}
+\label{sec:gp:risques}
+
+\begin{table}[H]
+\centering
+\caption{Matrice des risques projet PlateVision}
+\label{tab:gp:risques}
+\begin{tabular}{clccp{4.5cm}}
+\toprule
+\textbf{ID} & \textbf{Risque} & \textbf{Probab.} & \textbf{Impact} & \textbf{Mitigation} \\
+\midrule
+R1 & Dataset non adapt\'{e} CEMAC
+   & \'{E}lev\'{e}e
+   & Critique
+   & Augmentation cibl\'{e}e (formats CEMAC) + DSD transparent \\
+R2 & GPU indisponible (Colab quotas)
+   & Moyenne
+   & \'{E}lev\'{e}
+   & Fallback CPU pour Naive Bayes ; YOLOv8n (taille minimale) \\
+R3 & OCR mauvaise performance sur plaques camerounaises
+   & Moyenne
+   & \'{E}lev\'{e}
+   & Test de plusieurs librairies (EasyOCR, Tesseract, PaddleOCR) \\
+R4 & MDP ne converge pas ($\varepsilon$ trop petit)
+   & Faible
+   & Moyen
+   & $\varepsilon$, $\gamma$ ajustables en CLI (\texttt{--epsilon}, \texttt{--gamma}) \\
+R5 & Code non ex\'{e}cutable en soutenance
+   & Faible
+   & Critique
+   & Tests locaux J4 ; \texttt{demo.py} avec pipeline complet A$\to$B$\to$C \\
+R6 & Conflit Git (merges)
+   & Moyenne
+   & Faible
+   & Branche unique \texttt{dataset\_nkegoueth} + PR avant merge \\
+R7 & Manque de donn\'{e}es plaques falsifi\'{e}es
+   & \'{E}lev\'{e}e
+   & Moyen
+   & Simulation par homographie + bruit dans les labels OCR \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Mesure de contr\^{o}le globale}
+La r\`{e}gle appliqu\'{e}e tout au long du projet : \textbf{aucun module
+n'est d\'{e}clar\'{e} ``termin\'{e}'' sans qu'un script de test puisse
+\^{e}tre ex\'{e}cut\'{e} depuis la racine du projet} (\texttt{python
+modules/X/test\_X.py}). Cette r\`{e}gle a \'{e}t\'{e} valid\'{e}e par
+l'ensemble de l'\'{e}quipe en J1.
+
+% ── Section 5 : Suivi des décisions techniques ────────────────────────────────
+\section{Suivi des d\'{e}cisions techniques}
+\label{sec:gp:decisions}
+
+\begin{table}[H]
+\centering
+\caption{Journal des d\'{e}cisions techniques PlateVision}
+\label{tab:gp:decisions}
+\begin{tabular}{p{1cm}p{4.5cm}p{4cm}p{4cm}}
+\toprule
+\textbf{Jour} & \textbf{D\'{e}cision} & \textbf{Alternatives reject\'{e}es} & \textbf{Justification} \\
+\midrule
+J1 & YOLOv8n (taille nano)
+   & YOLOv8m, YOLOv8l
+   & Temps r\'{e}el sur CPU MINT ; $\leq 6$\,ms/image \\
+J1 & EasyOCR pour l'OCR
+   & Tesseract, PaddleOCR
+   & Meilleure gestion polices alphanumériques mixtes ; GPU optionnel \\
+J1 & Git Flow branche unique
+   & Branches par module
+   & \'{E}quipe de 5 ; r\'{e}duction conflits ; livraison conjointe \\
+J2 & $\gamma = 0.95$ pour le MDP
+   & $0.90$, $0.99$
+   & Horizon annuel ($\sim$20 \'{e}ch\'{e}ances) align\'{e} cycle vignettes MINT \\
+J3 & $k = 3$ clusters (K-Means)
+   & $k = 4$, $k = 5$
+   & Elbow + silhouette ($s = 0.72$ pour $k=3$) + coh\'{e}rence m\'{e}tier \\
+J3 & Pruning fr\'{e}quence $< 1\,\%$
+   & Pruning $< 5\,\%$
+   & Conserver \'{e}tats rares mais op\'{e}rationnellement importants (fraude) \\
+J4 & MobileNetV2 pour embeddings
+   & ResNet50, VGG16
+   & Compromis taille/performance ; vecteurs 512 dim suffisants pour $k=3$ \\
+J4 & \'{E}thique par design (garde-fou MDP)
+   & Filtrage post-hoc
+   & $R(s_{\text{conforme}}, a_{\text{saisie}}) \ll 0$ int\'{e}gr\'{e} dans le MDP \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ── Section 6 : Historique Git ───────────────────────────────────────────────
+\section{Historique Git}
+\label{sec:gp:git}
+
+\paragraph{Branche de travail}
+Toutes les contributions ont \'{e}t\'{e} r\'{e}alis\'{e}es sur la branche
+\texttt{dataset\_nkegoueth}, cr\'{e}\'{e}e \`{a} partir de \texttt{main}
+en d\'{e}but de projet. Les commits suivent la convention
+\texttt{Conventional Commits} (\texttt{feat}, \texttt{docs}, \texttt{fix},
+\texttt{refactor}) pour assurer une traçabilit\'{e} s\'{e}mantique.
+
+\paragraph{Politique de merge}
+Les modifications sont int\'{e}gr\'{e}es par \textit{pull request} vers
+\texttt{main} apr\`{e}s revue par au moins un autre membre de l'\'{e}quipe.
+Aucun push direct sur \texttt{main} n'est autoris\'{e}.
+
+\begin{table}[H]
+\centering
+\caption{Commits principaux --- branche \texttt{dataset\_nkegoueth}}
+\label{tab:gp:commits}
+\begin{tabular}{p{2.5cm}lp{7cm}}
+\toprule
+\textbf{Hash (abr.)} & \textbf{Auteur} & \textbf{Message} \\
+\midrule
+\texttt{bb80ffb} & andreonana & {[MODULE-C] feat(rewards): R(s,a) sourc\'{e}e FCFA} \\
+\texttt{0c9ed65} & andreonana & {Module C: implement Value Iteration and Policy Iteration from scratch} \\
+\texttt{9b25a37} & andreonana & {Module C: implement Policy Iteration from scratch} \\
+\texttt{76bd886} & andreonana & {Module C: add VI vs PI comparison} \\
+\texttt{3b2b3ec} & andreonana & {[INTERFACE] feat(demo): d\'{e}monstrateur temps r\'{e}el pipeline A$\to$B$\to$C} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Statistiques de contribution}
+L'historique complet est consultable via \texttt{git log -{}-oneline} sur
+la branche \texttt{dataset\_nkegoueth}. La distribution des commits par
+module refl\`{e}te l'effort relatif :
+Module~C ($\sim$40\,\% des commits), Module~B ($\sim$30\,\%),
+Module~A ($\sim$20\,\%), transversal -- documentation ($\sim$10\,\%).
+
+\end{document}

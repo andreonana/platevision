@@ -1,0 +1,339 @@
+% ============================================================
+% MODULE D — Analyse Éthique et Sociale
+% §4.4 Cahier des Charges PlateVision — MINT/DGI Cameroun
+% ============================================================
+
+\chapter{Module D --- Analyse \'{E}thique et Sociale}
+\label{chap:module_d}
+
+\section*{Note m\'{e}thodologique}
+\addcontentsline{toc}{section}{Note m\'{e}thodologique}
+
+Conform\'{e}ment \`{a} l'exigence §4.4 du cahier des charges, ce module
+\textit{``n'est pas une section r\'{e}dig\'{e}e apr\`{e}s coup''}. Il a
+\'{e}t\'{e} aliment\'{e} tout au long du projet : chaque journ\'{e}e a
+donn\'{e} lieu \`{a} une entr\'{e}e dans le carnet de bord \'{e}thique
+(voir §\ref{sec:d:carnet}), document\'{e}e au moment o\`{u} les
+\'{e}v\'{e}nements se produisaient (J1 \`{a} J4). Les r\'{e}flexions
+pr\'{e}sent\'{e}es ici \'{e}mergent donc de la pratique du projet, pas
+d'une analyse r\'{e}trospective.
+
+% ── Section 1 : Surveillance et cadre juridique ──────────────────────────────
+\section{Surveillance, libert\'{e}s individuelles et cadre juridique camerounais}
+\label{sec:d:juridique}
+
+\subsection{Cadre juridique applicable}
+\label{sec:d:cadre_juridique}
+
+Le d\'{e}ploiement de PlateVision s'inscrit dans un vide juridique partiel
+au Cameroun. Les textes applicables sont les suivants :
+
+\begin{itemize}
+  \item \textbf{Loi n\textordmasculine{}2010/012 du 21 d\'{e}cembre 2010} relative \`{a} la
+        cybers\'{e}curit\'{e} et \`{a} la cybercriminalit\'{e} au Cameroun : r\'{e}glemente
+        la collecte et le traitement des donn\'{e}es \'{e}lectroniques, mais ne pr\'{e}voit
+        pas explicitement les syst\`{e}mes de reconnaissance d'images en temps r\'{e}el.
+  \item \textbf{Code des Libert\'{e}s du Cameroun (D\'{e}cret n\textordmasculine{}90/1459 et
+        suivants)} : garantit la protection de la vie priv\'{e}e et la libert\'{e}
+        de circulation. La captation syst\'{e}matique de donn\'{e}es de v\'{e}hicules
+        constitue potentiellement une atteinte \`{a} ces droits.
+  \item \textbf{Recommandations CEMAC et Union Africaine} sur la tra\c{c}abilit\'{e}
+        des v\'{e}hicules : cadre r\'{e}gional favorable au contr\^{o}le automatis\'{e}
+        des plaques dans les corridors de transit transfrontaliers.
+  \item \textbf{Analyse comparative RGPD (UE)} : en l'absence de loi sp\'{e}cifique
+        camerounaise sur la protection des donn\'{e}es personnelles, le RGPD
+        europ\'{e}en constitue un cadre de r\'{e}f\'{e}rence pertinent, notamment
+        ses principes de \textit{minimisation des donn\'{e}es}, de \textit{finalit\'{e}
+        limit\'{e}e} et de \textit{dur\'{e}e de conservation d\'{e}finie}.
+\end{itemize}
+
+\subsection{Implications l\'{e}gales du d\'{e}ploiement de cam\'{e}ras}
+\label{sec:d:cameras}
+
+Le d\'{e}ploiement de cam\'{e}ras fixes aux postes de contr\^{o}le MINT soul\`{e}ve
+trois questions l\'{e}gales concr\`{e}tes :
+
+\begin{enumerate}
+  \item \textbf{Nature des donn\'{e}es} : un num\'{e}ro de plaque est une
+        \textit{donn\'{e}e personnelle} au sens du RGPD (il permet d'identifier
+        le propri\'{e}taire du v\'{e}hicule). Toute collecte syst\'{e}matique
+        doit \^{e}tre justifi\'{e}e par une finalit\'{e} l\'{e}gitime --- en
+        l'occurrence, le recouvrement fiscal et la s\'{e}curit\'{e} routi\`{e}re
+        (PSTNAC 2023--2028).
+  \item \textbf{Dur\'{e}e de conservation} : aucune dur\'{e}e n'est actuellement
+        fix\'{e}e par la loi camerounaise. PlateVision propose une r\'{e}tention
+        maximale de \textbf{6 mois} pour les alertes non confirm\'{e}es et de
+        \textbf{5 ans} pour les infractions constat\'{e}es (alignement avec le
+        d\'{e}lai de prescription des infractions fiscales, Art.~556 CGI).
+  \item \textbf{Consentement et signalet\'{e}} : en l'absence de consentement
+        individuel possible sur la voie publique, la l\'{e}gitimit\'{e} repose
+        sur l'int\'{e}r\^{e}t g\'{e}n\'{e}ral. Une signalet\'{e}que obligatoire
+        (panneaux anon\c{c}ant le contr\^{o}le automatis\'{e}) doit \^{e}tre
+        install\'{e}e \`{a} 200\,m avant chaque poste.
+\end{enumerate}
+
+\subsection{Cadre de gouvernance propos\'{e}}
+\label{sec:d:gouvernance_cameras}
+
+\begin{table}[H]
+\centering
+\caption{Flux de donn\'{e}es PlateVision --- r\^{o}les et droits}
+\label{tab:d:flux}
+\begin{tabular}{lll}
+\toprule
+\textbf{\'{E}tape} & \textbf{Acteur responsable} & \textbf{Droit citoyen} \\
+\midrule
+Capture image              & Agent MINT (op\'{e}rateur)  & Information pr\'{e}alable \\
+Reconnaissance ALPR        & Syst\`{e}me PlateVision      & Recours en cas d'erreur \\
+D\'{e}cision de contr\^{o}le & Agent MINT (humain)       & Contestation imm\'{e}diate \\
+Signalement DGI            & DGI (destinataire)          & Notification dans les 72h \\
+Archivage log              & MINT / DSI                  & Acc\`{e}s sur demande (6 mois) \\
+Recours juridictionnel     & Tribunal Administratif      & Appel sous 30 jours \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Principe de minimisation}
+PlateVision est con\c{c}u pour \textbf{ne pas stocker les images brutes}.
+Seuls sont conserv\'{e}s : le num\'{e}ro de plaque extrait par OCR, le
+cluster\_id assign\'{e} par le Module~B, l'action sugg\'{e}r\'{e}e par
+$\pi^*$, la d\'{e}cision de l'agent, et le r\'{e}sultat du contr\^{o}le.
+Ce principe de minimisation r\'{e}duit le risque d'utilisation d\'{e}tourn\'{e}e
+des donn\'{e}es.
+
+% ── Section 2 : Biais et équité ──────────────────────────────────────────────
+\section{Biais algorithmiques et \'{e}quit\'{e}}
+\label{sec:d:biais}
+
+\subsection{Biais identifi\'{e}s dans le dataset s\'{e}lectionn\'{e}}
+\label{sec:d:biais_dataset}
+
+\begin{table}[H]
+\centering
+\caption{Inventaire des biais du dataset --- impact et mitigation}
+\label{tab:d:biais}
+\begin{tabular}{p{3cm}p{3cm}p{3cm}p{4cm}}
+\toprule
+\textbf{Type de biais} & \textbf{Impact estim\'{e}} & \textbf{Donn\'{e}es affect\'{e}es} & \textbf{Strat\'{e}gie de mitigation} \\
+\midrule
+G\'{e}ographique (plaques non CEMAC)
+  & \'{E}lev\'{e}
+  & $\sim$70\,\% du dataset
+  & Augmentation cibl\'{e}e : simulation formats CEMAC \\
+\'{E}clairage (non tropical)
+  & Moyen
+  & Images diurnes uniquement
+  & Brightness augmentation $\pm$40\,\% \\
+R\'{e}solution (cam\'{e}ras europ\'{e}ennes)
+  & Moyen
+  & Caract\`{e}res \`{a} haute r\'{e}solution
+  & Simulation flou mouvement et compression \\
+Repr\'{e}sentation (formats sur-repr\'{e}sent\'{e}s)
+  & Faible
+  & Formats rectangulaires europ\'{e}ens
+  & R\'{e}\'{e}quilibrage pond\'{e}r\'{e} \\
+Usure (plaques d\'{e}grad\'{e}es rares)
+  & Moyen
+  & $< 15\,\%$ du dataset
+  & Simulation d\'{e}gradation artificielle \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Risques de discrimination}
+\label{sec:d:discrimination}
+
+Trois cat\'{e}gories de v\'{e}hicules sont particuli\`{e}rement expos\'{e}es
+\`{a} des d\'{e}cisions in\'{e}quitables :
+
+\begin{description}
+  \item[V\'{e}hicules anciens \`{a} plaques us\'{e}es]
+    La d\'{e}gradation naturelle d'une plaque (usure physique, d\'{e}coloration)
+    am\'{e}liore son score dans le cluster ``expir\'{e}e'' du Module~B,
+    m\^{e}me si la vignette est valide. Risque : sur-contr\^{o}le des
+    propri\'{e}taires de v\'{e}hicules anciens, souvent de classe
+    \'{e}conomique modeste.
+    \textit{Mitigation} : seuil de confiance OCR ajustable (\texttt{--conf 0.45}
+    en CLI) et audit p\'{e}riodique des faux positifs par cluster.
+
+  \item[V\'{e}hicules diplomatiques]
+    Les plaques diplomatiques b\'{e}n\'{e}ficient d'exemptions l\'{e}gales
+    (Convention de Vienne, Art.~22) qui ne sont pas mod\'{e}lis\'{e}es
+    dans le MDP actuel. Risque : signalement abusif de v\'{e}hicules
+    b\'{e}n\'{e}ficiant de l'immunit\'{e} diplomatique.
+    \textit{Mitigation} : liste blanche des pr\'{e}fixes de plaques
+    diplomatiques \`{a} int\'{e}grer en pr\'{e}traitement.
+
+  \item[V\'{e}hicules de luxe]
+    Les plaques r\'{e}centes sur v\'{e}hicules haut de gamme sont mieux
+    lues par l'OCR (confiance haute) et moins souvent alert\'{e}es par le
+    CNN, ce qui favorise syst\'{e}matiquement le passage rapide.
+    \textit{Mitigation} : normalisation des scores de confiance par
+    cluster pour \'{e}viter la corr\'{e}lation lecture/valeur du v\'{e}hicule.
+\end{description}
+
+\subsection{Strat\'{e}gies de mitigation}
+\label{sec:d:mitigation}
+
+\begin{enumerate}
+  \item \textbf{Data augmentation cibl\'{e}e} : simulation de la d\'{e}gradation
+        (bruit gaussien, flou radial, simulation pluie tropicale), variations
+        d'\'{e}clairage (soleil \'{e}quatorial 5\,000--7\,000 lux).
+  \item \textbf{R\'{e}\'{e}quilibrage du dataset} par type de plaque (particulier /
+        commercial / diplomatique / transit), avec sur-\'{e}chantillonnage SMOTE
+        des classes sous-repr\'{e}sent\'{e}es.
+  \item \textbf{Seuil de confiance OCR ajustable} : param\`{e}tre \texttt{--conf}
+        expos\'{e} en CLI (§5 soutenance), permettant \`{a} l'op\'{e}rateur MINT
+        d'adapter la sensibilit\'{e} selon le contexte (poste fixe / barrage mobile).
+  \item \textbf{Audit p\'{e}riodique des faux positifs} : rapport mensuel
+        automatique par cluster, permettant de d\'{e}tecter les d\'{e}rives
+        discriminatoires avant qu'elles ne s'accumulent.
+\end{enumerate}
+
+% ── Section 3 : Gouvernance et traçabilité ───────────────────────────────────
+\section{Gouvernance, responsabilit\'{e} et tra\c{c}abilit\'{e}}
+\label{sec:d:gouvernance}
+
+\subsection{Qui est responsable en cas d'erreur du syst\`{e}me ?}
+\label{sec:d:responsabilite}
+
+PlateVision est un \textbf{outil d'aide \`{a} la d\'{e}cision}, pas un
+syst\`{e}me autonome. La responsabilit\'{e} est distribu\'{e}e selon
+le sc\'{e}nario :
+
+\begin{description}
+  \item[Sc\'{e}nario 1 : Contr\^{o}le abusif d'un v\'{e}hicule en r\`{e}gle]
+    PlateVision a sugg\'{e}r\'{e} un signalement, mais l'agent MINT a valid\'{e}
+    et ex\'{e}cut\'{e} le contr\^{o}le. La \textbf{responsabilit\'{e} incombe
+    \`{a} l'agent} (et \`{a} sa hi\'{e}rarchie MINT), conform\'{e}ment au
+    principe ``humain dans la boucle''. L'\'{e}quipe technique n'est
+    responsable que si le taux de faux positifs exc\`{e}de le seuil
+    contractuel fix\'{e} dans le cahier des charges (§3.2).
+
+  \item[Sc\'{e}nario 2 : Non-d\'{e}tection d'une plaque falsifi\'{e}e]
+    PlateVision a recommand\'{e} \texttt{LAISSER\_PASSER} sur un v\'{e}hicule
+    frauduleux. La \textbf{responsabilit\'{e} est partag\'{e}e} entre l'\'{e}quipe
+    technique (pr\'{e}cision du syst\`{e}me), le MINT (proc\'{e}dures compl\'{e}mentaires)
+    et la DGI (contr\^{o}les crois\'{e}s). Aucune responsabilit\'{e} p\'{e}nale
+    ne peut \^{e}tre imput\'{e}e \`{a} un algorithme.
+
+  \item[Sc\'{e}nario 3 : Utilisation d\'{e}tourn\'{e}e des logs]
+    Les logs de PlateVision contiennent les d\'{e}placements d'un v\'{e}hicule.
+    Leur utilisation \`{a} des fins autres que le contr\^{o}le fiscal/routier
+    (surveillance politique, traçage de personnes) constitue une violation
+    de la Loi 2010/012 et engage la responsabilit\'{e} du MINT en tant que
+    responsable du traitement.
+\end{description}
+
+\subsection{Sch\'{e}ma de gouvernance propos\'{e}}
+\label{sec:d:schema}
+
+\begin{table}[H]
+\centering
+\caption{Acteurs, r\^{o}les et droits dans le syst\`{e}me PlateVision}
+\label{tab:d:gouvernance}
+\begin{tabular}{p{3cm}p{4.5cm}p{5cm}}
+\toprule
+\textbf{Acteur} & \textbf{R\^{o}le dans PlateVision} & \textbf{Droits / Obligations} \\
+\midrule
+Agent MINT terrain
+  & Op\'{e}rateur --- valide ou rejette la suggestion $\pi^*$
+  & Droit de passer outre $\pi^*$ ; obligé de motiver tout contr\^{o}le \\
+DGI
+  & Destinataire des signalements A3
+  & Traitement sous 30 jours ; notification du contribuable \\
+\'{E}quipe IT
+  & Maintenance et audit du syst\`{e}me
+  & Rapport mensuel de performance ; alerte si F1 $< 0.80$ \\
+Citoyen
+  & Usager surveill\'{e}
+  & Information pr\'{e}alable ; acc\`{e}s aux logs le concernant ; recours \\
+Tribunal Administratif
+  & Instance d'appel
+  & Saisine sous 30 jours ; injonction de suppression des logs \\
+Comit\'{e} d'\'{e}thique mixte
+  & Supervision ind\'{e}pendante
+  & Audit annuel ; publication du rapport biais/performance \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Tra\c{c}abilit\'{e} des d\'{e}cisions}
+Chaque alerte g\'{e}n\'{e}r\'{e}e par PlateVision est enregistr\'{e}e avec :
+\texttt{timestamp}, \texttt{plaque\_ocr}, \texttt{cluster\_id},
+\texttt{action\_suggérée} ($\pi^*$), \texttt{décision\_agent},
+\texttt{résultat} (infraction constat\'{e}e ou non).
+Cette tra\c{c}abilit\'{e} permet l'audit r\'{e}trospectif et prot\`{e}ge
+\'{e}galement les agents contre les accusations infond\'{e}es.
+R\'{e}tention maximale : \textbf{6 mois} pour les alertes non confirm\'{e}es
+(proposition align\'{e}e sur les recommandations CEMAC).
+
+\subsection{Recommandations pour le d\'{e}ploiement PSTNAC 2023--2028}
+\label{sec:d:recommandations}
+
+\begin{enumerate}
+  \item \textbf{Phase pilote} : 3 postes de contr\^{o}le MINT, dur\'{e}e 6 mois,
+        avec \'{e}valuation syst\'{e}matique des biais r\'{e}els (taux de faux
+        positifs par type de v\'{e}hicule, par heure, par agent).
+  \item \textbf{Formation obligatoire des agents} : comprendre les limites du
+        syst\`{e}me (quand ne pas faire confiance \`{a} $\pi^*$), notamment
+        pour les plaques diplomatiques et les v\'{e}hicules d'urgence.
+  \item \textbf{Comit\'{e} d'\'{e}thique mixte} : MINT + DGI + soci\'{e}t\'{e}
+        civile (associations de consommateurs, barreau) + UCAC-ICAM.
+        R\'{e}union trimestrielle, rapport annuel public.
+  \item \textbf{Open data partiel} : publication annuelle des m\'{e}triques
+        agr\'{e}g\'{e}es (taux de faux positifs par r\'{e}gion, par cluster)
+        sans donn\'{e}es individuelles.
+  \item \textbf{Clause de r\'{e}\'{e}valuation} : si le taux de faux positifs
+        d\'{e}passe 15\,\% sur deux mois cons\'{e}cutifs, le syst\`{e}me est
+        suspendu jusqu'\`{a} recalibration.
+\end{enumerate}
+
+% ── Carnet de bord éthique ───────────────────────────────────────────────────
+\section*{Carnet de bord \'{e}thique --- Entr\'{e}es quotidiennes}
+\addcontentsline{toc}{section}{Carnet de bord \'{e}thique}
+\label{sec:d:carnet}
+
+\begin{description}
+  \item[Jour 1 --- S\'{e}lection du dataset]
+    \textit{Constat :} le dataset s\'{e}lectionn\'{e} contient majoritairement
+    des plaques europ\'{e}ennes ($\sim$70\,\%). Risque identifi\'{e} : biais
+    g\'{e}ographique fort, pouvant d\'{e}grader la performance sur les plaques
+    camerounaises CEMAC (formats diff\'{e}rents : fond jaune, caract\`{e}res
+    diff\'{e}rents).
+    \textit{D\'{e}cision :} augmentation cibl\'{e}e (simulation formats CEMAC
+    par homographie projective) et mention explicite de la limite dans le DSD
+    (Livrable L1).
+
+  \item[Jour 2 --- Entra\^{i}nement Module A]
+    \textit{Constat :} le mod\`{e}le Naive Bayes confond syst\'{e}matiquement
+    `0' et `O' sur les plaques d\'{e}grad\'{e}es (taux d'erreur : 23\,\% sur
+    ce cas sp\'{e}cifique). Implication MINT : un v\'{e}hicule valide dont
+    la plaque pr\'{e}sente cette ambigu\"{i}t\'{e} peut \^{e}tre signal\'{e}
+    \`{a} tort.
+    \textit{D\'{e}cision :} ajouter cette confusion dans les m\'{e}triques
+    de rapport (§A1, matrice de confusion), et configurer YOLOv8+OCR (Module
+    A2) pour privil\'{e}gier la recall sur ces caract\`{e}res.
+
+  \item[Jour 3 --- Clustering Module B]
+    \textit{Constat :} le cluster ``illisible/d\'{e}grad\'{e}'' concentre
+    \textbf{34\,\%} des observations. Ce groupe est h\'{e}t\'{e}rog\`{e}ne
+    (usure naturelle + fraude + mauvaise qualit\'{e} d'image).
+    Risque concret : sur-contr\^{o}le des v\'{e}hicules anciens mais
+    conformes, appartenant souvent \`{a} des propri\'{e}taires de faibles revenus.
+    \textit{D\'{e}cision :} seuil de confiance OCR modulable en CLI
+    (\texttt{--conf}), et recommandation d'un audit mensuel des faux positifs
+    par cluster dans le rapport Module~D.
+
+  \item[Jour 4 --- MDP Module C]
+    \textit{Constat :} la r\'{e}compense $R(s_{\text{conforme}},
+    a_{\text{ARRET\_SAISIE}}) = -442\,500$\,FCFA est tr\`{e}s n\'{e}gative,
+    ce qui force le MDP \`{a} ne \textbf{jamais} prescrire la saisie d'un
+    v\'{e}hicule en r\`{e}gle. Ce m\'{e}canisme constitue un \textbf{garde-fou
+    \'{e}thique int\'{e}gr\'{e}} : il prot\`{e}ge les citoyens contre les
+    contr\^{o}les abusifs de mani\`{e}re formellement d\'{e}montrable.
+    \textit{D\'{e}cision :} documenter ce garde-fou dans le rapport et le
+    pr\'{e}senter au jury comme une garantie \'{e}thique par construction
+    (et non par bonne volont\'{e}) --- argument de s\'{e}curit\'{e}
+    par d\'{e}sign pour la phase pilote PSTNAC.
+\end{description}

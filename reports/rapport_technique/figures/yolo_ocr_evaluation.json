@@ -1,0 +1,16 @@
+{
+  "n_images_tested": 597,
+  "n_detections_ok": 597,
+  "detection_rate": 1.0,
+  "mean_cer": 1.0215630823671025,
+  "mean_wer": 1.0,
+  "mean_ocr_conf": 0.05821093457686587,
+  "perfect_reads": 0,
+  "perfect_read_rate": 0.0,
+  "comparison_nb_vs_yolo_ocr": {
+    "nb_accuracy": 0.027548209366391185,
+    "yolo_ocr_wer": 1.0,
+    "improvement": "NB meilleur",
+    "nb_limitation": "NB classe des caractères pré-segmentés, inutilisable sans détection préalable"
+  }
+}

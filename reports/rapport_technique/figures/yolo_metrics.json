@@ -1,0 +1,9 @@
+{
+  "map50": 0.995,
+  "map50_95": 0.9933576443133287,
+  "precision": 0.9988517536423441,
+  "recall": 1.0,
+  "inference_ms_mean": 12.248034500009908,
+  "inference_ms_std": 16.016252812848055,
+  "realtime_ok": true
+}

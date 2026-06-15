@@ -1,0 +1,269 @@
+% ============================================================
+% MODULE C — Modélisation MDP : Décision Optimale Sous Incertitude
+% §4.3 Cahier des Charges PlateVision — MINT/DGI Cameroun
+% ============================================================
+
+\chapter{Module C --- Mod\'{e}lisation MDP : D\'{e}cision Optimale Sous Incertitude}
+\label{chap:module_c}
+
+% ── Transition B→C ─────────────────────────────────────────────────────────────
+\section{Transition Module B $\rightarrow$ Module C}
+\label{sec:c:transition_b}
+
+Le Module B a identifi\'{e} \textbf{k\,=\,3 familles de plaques} par clustering
+K-Means sur les embeddings CNN, permettant de distinguer les plaques conformes,
+d\'{e}grad\'{e}es et expir\'{e}es. Cette segmentation constitue une avanc\'{e}e
+d\'{e}cisive : l'agent de contr\^{o}le dispose d\'{e}sormais d'une caract\'{e}risation
+fine de chaque v\'{e}hicule intercept\'{e}.
+
+Cependant, \textbf{la classification seule ne prescrit pas d'action optimale}.
+Face \`{a} une plaque \'{e}tiquet\'{e}e ``expir\'{e}e", l'agent doit encore choisir
+entre laisser passer, signaler \`{a} la DGI, ou proc\'{e}der \`{a} une saisie ---
+des d\'{e}cisions aux cons\'{e}quences op\'{e}rationnelles et financi\`{e}res
+tr\`{e}s diff\'{e}rentes. De plus, cette d\'{e}cision s'inscrit dans un contexte
+d'incertitude : la confiance OCR varie, et un m\^{e}me cluster peut contenir
+des v\'{e}hicules en r\`{e}gle ou en infraction.
+
+C'est pr\'{e}cis\'{e}ment le r\^{o}le du Module~C : mod\'{e}liser ce probl\`{e}me
+comme un \textbf{Processus de D\'{e}cision Markovien (MDP)} et calculer la
+politique optimale $\pi^*$ qui maximise les b\'{e}n\'{e}fices cumul\'{e}s pour
+le MINT/DGI tout en prot\'{e}geant les usagers contre les contr\^{o}les abusifs.
+
+% ── Définition formelle du MDP ─────────────────────────────────────────────────
+\section{D\'{e}finition formelle du MDP PlateVision}
+\label{sec:c:mdp_def}
+
+\begin{table}[H]
+\centering
+\caption{Les cinq composantes du MDP PlateVision}
+\label{tab:c:mdp_tuple}
+\begin{tabular}{clp{8cm}}
+\toprule
+\textbf{Composante} & \textbf{Notation} & \textbf{D\'{e}finition dans le contexte MINT/DGI} \\
+\midrule
+\'{E}tats          & $\mathcal{S}$   & Familles de plaques caract\'{e}ris\'{e}es par le triplet
+                                       (cluster, confiance OCR, alerte CNN) \\
+Actions            & $\mathcal{A}$   & D\'{e}cisions disponibles \`{a} l'agent de contr\^{o}le
+                                       (5 actions, de laisser passer \`{a} saisie) \\
+Transitions        & $P(s'|s,a)$     & Probabilit\'{e} de changer d'\'{e}tat apr\`{e}s une action,
+                                       calibr\'{e}e sur les statistiques MINT 2023 \\
+R\'{e}compenses    & $R(s,a)$        & Bilan co\^{u}ts/b\'{e}n\'{e}fices en FCFA (Code Route
+                                       n\textordmasculine{}96/07, DGI 2023, Loi 2010/012) \\
+Politique optimale & $\pi^*$         & Application $s \mapsto a^*$ maximisant
+                                       $\mathbb{E}\!\left[\sum_{t} \gamma^t R(s_t, a_t)\right]$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ── Espace d'états ─────────────────────────────────────────────────────────────
+\subsection{Espace d'\'{e}tats $\mathcal{S}$}
+\label{sec:c:states}
+
+L'espace d'\'{e}tats est construit par produit cart\'{e}sien des trois
+attributs disponibles en sortie des Modules A et B :
+
+\begin{equation}
+\mathcal{S} = \underbrace{\{0,1,2\}}_{\text{cluster\_id}} \times
+              \underbrace{\{\text{haute, moy, faible}\}}_{\text{conf\_ocr}} \times
+              \underbrace{\{\text{alerte, no\_alerte}\}}_{\text{alerte\_cnn}}
+= k \times 3 \times 2 = 18 \text{ \'{e}tats th\'{e}oriques}
+\label{eq:state_space}
+\end{equation}
+
+Apr\`{e}s \textbf{pruning} des \'{e}tats jamais observ\'{e}s dans le dataset
+($< 1\,\%$ de fr\'{e}quence empirique), l'espace est r\'{e}duit \`{a}
+$N = 7$ \'{e}tats effectifs, conform\'{e}ment \`{a} l'exigence §4.3
+(9--16 \'{e}tats recommand\'{e}s). Cette r\'{e}duction \'{e}limine notamment
+les combinaisons (cluster\_expir\'{e}, confiance\_haute, alerte\_cnn) jamais
+rencontr\'{e}es en pratique : une plaque expir\'{e}e \`{a} haute confiance
+d\'{e}clenche syst\'{e}matiquement une alerte CNN.
+
+% ── Espace d'actions ───────────────────────────────────────────────────────────
+\subsection{Espace d'actions $\mathcal{A}$}
+\label{sec:c:actions}
+
+\begin{table}[H]
+\centering
+\caption{Les 5 actions disponibles --- co\^{u}ts, gains et bases l\'{e}gales (FCFA)}
+\label{tab:c:actions}
+\begin{tabular}{llrrp{4.5cm}}
+\toprule
+\textbf{Action} & \textbf{Identifiant} & \textbf{Co\^{u}t (FCFA)} & \textbf{Gain max (FCFA)} & \textbf{Base l\'{e}gale} \\
+\midrule
+Laisser passer     & A0\_LAISSER\_PASSER   &        500 &          0 & Bar\`{e}me MINT 2023 \\
+Contr\^{o}le std   & A1\_CONTROLE\_STD     &      5\,000 &     25\,000 & Code Route n\textordmasculine{}96/07, Art.~137 \\
+Arr\^{e}t + saisie & A2\_ARRET\_SAISIE     &     50\,000 &    700\,000 & Code Route, Art.~169 + CPP Art.~78 \\
+Signalement DGI    & A3\_SIGNAL\_DGI       &      2\,000 &     45\,000 & Loi Finances DGI 2023, Art.~207--209 \\
+Transfert PJ       & A4\_TRANSFERT\_PJ     &     75\,000 &    500\,000 & Code P\'{e}nal, Art.~342 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Justification de l'action A3 (Signalement DGI)}
+L'action \texttt{SIGNALEMENT\_DGI} pr\'{e}sente le meilleur ratio
+co\^{u}t/b\'{e}n\'{e}fice pour les plaques expir\'{e}es :
+$45\,000 / 2\,000 = \mathbf{22{,}5\times}$ (Loi Finances DGI 2023, Art.~207--209 ;
+Code Route n\textordmasculine{}96/07). C'est pourquoi $\pi^*$ l'affecte
+syst\'{e}matiquement aux \'{e}tats ``expir\'{e}".
+
+\IfFileExists{figures/actions_cost_benefit.png}{%
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{figures/actions_cost_benefit.png}
+\caption{Co\^{u}ts et gains des 5 actions --- bilan MINT/DGI (FCFA)}
+\label{fig:c:actions_cost}
+\end{figure}}{}
+
+% ── Matrice de transitions ─────────────────────────────────────────────────────
+\subsection{Matrice de transitions $P(s'|s,a)$}
+\label{sec:c:transitions}
+
+Les probabilit\'{e}s de transition sont calibr\'{e}es sur les statistiques
+MINT 2023 \`{a} l'aide de cinq hypoth\`{e}ses documentées :
+
+\begin{enumerate}
+  \item $\varepsilon_{\text{MINT}} = 10\,\%$ : taux d'erreur moyen de l'agent humain
+        lors d'un contr\^{o}le standard (source : rapport interne MINT §1.2).
+  \item $p_{\text{reveal\_saisie}} = 0.85$ : probabilit\'{e} qu'une saisie r\'{e}v\`{e}le
+        effectivement une infraction sur une plaque alert\'{e}e par le CNN.
+  \item $p_{\text{fuite}} = 0.05$ : probabilit\'{e} qu'un v\'{e}hicule \'{e}vite le contr\^{o}le
+        en cas de tentative de transfert PJ (contexte p\'{e}riurbain).
+  \item $p_{\text{renouvellement}} = 0.30$ : taux de mise \`{a} jour spontan\'{e}e
+        d'un v\'{e}hicule expir\'{e} apr\`{e}s signalement DGI (6 mois, §6 Loi Finances).
+  \item $p_{\text{escalade}} = 0.15$ : probabilit\'{e} qu'un contr\^{o}le standard
+        n\'{e}cessite une escalade vers le signalement DGI.
+\end{enumerate}
+
+\IfFileExists{figures/transition_matrices.png}{%
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figures/transition_matrices.png}
+\caption{Matrices de transition $P(s'|s,a)$ pour les 5 actions --- heatmaps}
+\label{fig:c:transition_matrix}
+\end{figure}}{}
+
+% ── Matrice de récompenses ─────────────────────────────────────────────────────
+\subsection{Matrice de r\'{e}compenses $R(s,a)$}
+\label{sec:c:rewards}
+
+\input{module_c_rewards}
+
+\IfFileExists{figures/reward_matrix.png}{%
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{figures/reward_matrix.png}
+\caption{Matrice de r\'{e}compense $R(s,a)$ en FCFA --- heatmap compl\`{e}te}
+\label{fig:c:reward_matrix}
+\end{figure}}{}
+
+% ── Résolution du MDP ──────────────────────────────────────────────────────────
+\section{R\'{e}solution du MDP}
+\label{sec:c:resolution}
+
+\subsection{Value Iteration}
+\input{module_c_vi}
+
+\subsection{Policy Iteration}
+\input{module_c_pi}
+
+\subsection{Comparaison VI vs PI}
+\input{module_c_comparison}
+
+% ── Interprétation métier ──────────────────────────────────────────────────────
+\section{Interpr\'{e}tation m\'{e}tier de la politique optimale $\pi^*$}
+\label{sec:c:interpretation}
+
+\begin{table}[H]
+\centering
+\caption{Politique optimale $\pi^*$ --- lecture m\'{e}tier MINT/DGI}
+\label{tab:c:metier}
+\begin{tabular}{p{4.2cm}lp{6cm}}
+\toprule
+\textbf{\'{E}tat} & \textbf{Action $\pi^*(s)$} & \textbf{Interpr\'{e}tation MINT/DGI} \\
+\midrule
+Conforme, conf. haute, $\neg$alerte
+  & \texttt{LAISSER\_PASSER}
+  & Plaque valid\'{e}e par OCR et CNN : flux fluide, co\^{u}t $-$500 FCFA seulement. \\
+Conforme, conf. moy., $\neg$alerte
+  & \texttt{SIGNALEMENT\_DGI}
+  & Confiance OCR incertaine : v\'{e}rification l\'{e}g\`{e}re recommand\'{e}e. \\
+Conforme, conf. faible, $\neg$alerte
+  & \texttt{LAISSER\_PASSER}
+  & OCR peu fiable mais CNN rassurant : doute b\'{e}n\'{e}ficie au conducteur. \\
+D\'{e}grad\'{e}e, conf. haute, $\neg$alerte
+  & \texttt{SIGNALEMENT\_DGI}
+  & Plaque lisible mais physiquement alt\'{e}r\'{e}e : signalement pr\'{e}ventif DGI. \\
+Expir\'{e}e, conf. haute, $\neg$alerte
+  & \texttt{SIGNALEMENT\_DGI}
+  & Infraction document claire : ratio 22{,}5$\times$ justifie le signalement. \\
+Expir\'{e}e, conf. moy., $\neg$alerte
+  & \texttt{SIGNALEMENT\_DGI}
+  & M\^{e}me strat\'{e}gie : vignette manquante d\'{e}tect\'{e}e. \\
+Expir\'{e}e, conf. faible, $\neg$alerte
+  & \texttt{SIGNALEMENT\_DGI}
+  & M\^{e}me strat\'{e}gie ; confiance faible ne compense pas l'infraction manifest. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Lien avec les statistiques MINT/DGI (§1.2)}
+Sur les 24 mois de la p\'{e}riode de r\'{e}f\'{e}rence PSTNAC, \textbf{2\,400 v\'{e}hicules}
+\`{a} plaques falsifi\'{e}es ont \'{e}t\'{e} identifi\'{e}s, repr\'{e}sentant un manque
+\`{a} gagner estim\'{e} \`{a} \textbf{1{,}2 milliard FCFA} en amendes et vignettes
+non per\c{c}ues. La politique $\pi^*$ optimise pr\'{e}cis\'{e}ment le recouvrement
+sur ces cas, tout en \'{e}vitant les contr\^{o}les abusifs (garde-fou
+$R(s_{\text{conforme}}, a_{\text{saisie}}) \ll 0$).
+
+% ── Analyse de sensibilité ─────────────────────────────────────────────────────
+\section{Analyse de sensibilit\'{e} au facteur $\gamma$}
+\label{sec:c:sensitivity}
+
+\IfFileExists{figures/vi_pi_comparison_summary.png}{%
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figures/vi_pi_comparison_summary.png}
+\caption{Comparaison VI vs PI --- vitesse, temps de calcul et accord politique par $\gamma$}
+\label{fig:c:sensitivity}
+\end{figure}}{}
+
+\begin{table}[H]
+\centering
+\caption{Sensibilit\'{e} \`{a} $\gamma$ --- VI vs PI, accord politique et $\bar{V}^*$}
+\label{tab:c:gamma_sensitivity}
+\begin{tabular}{rrrrl}
+\toprule
+$\gamma$ & VI it\'{e}r. & PI it\'{e}r. & $\bar{V}^*$ moyen (FCFA) & Accord $\pi^*$ \\
+\midrule
+0.50 &    17 & 2 &  161\,591 & 100\,\% \\
+0.70 &    32 & 2 &  164\,990 & 100\,\% \\
+0.80 &    50 & 2 &  166\,781 & 100\,\% \\
+0.90 &   105 & 3 &  176\,780 & 100\,\% \\
+0.95 &   281 & 4 &  309\,129 & 100\,\% \\
+0.99 & 1\,493 & 4 & 1\,553\,100 & 100\,\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Choix retenu : $\gamma = 0{,}95$}
+Un facteur $\gamma = 0{,}95$ correspond \`{a} un horizon de d\'{e}cision
+d'environ \textbf{20 \'{e}ch\'{e}ances} ($1/(1-\gamma)$), coh\'{e}rent avec
+le cycle annuel de renouvellement des vignettes MINT/DGI. Une valeur plus
+faible (0,50) p\'{e}naliserait le syst\`{e}me pour ses d\'{e}cisions long terme
+(signalement DGI), ce qui va \`{a} l'encontre des objectifs PSTNAC 2023--2028.
+L'accord \`{a} 100\,\% entre VI et PI sur toute la plage de $\gamma$ confirme
+la \textbf{robustesse de la solution}.
+
+% ── Transition C→D ─────────────────────────────────────────────────────────────
+\section{Transition Module C $\rightarrow$ Module D}
+\label{sec:c:transition_d}
+
+Le Module~C fournit une politique optimale $\pi^*$ au sens math\'{e}matique
+du MDP. Cependant, \textbf{l'optimalit\'{e} math\'{e}matique ne garantit pas
+l'\'{e}quit\'{e} sociale}. La matrice de transitions est calibr\'{e}e sur des
+donn\'{e}es historiques qui peuvent refl\'{e}ter des biais syst\'{e}miques
+(sur-contr\^{o}le de certaines cat\'{e}gories de v\'{e}hicules, biais
+g\'{e}ographique du dataset). La fonction de r\'{e}compense exprime des
+choix politiques implicites (quel ratio gain/co\^{u}t est acceptable ?).
+Enfin, le d\'{e}ploiement de cam\'{e}ras de reconnaissance de plaques soul\`{e}ve
+des questions de surveillance, de libert\'{e}s individuelles et de
+responsabilit\'{e}. C'est l'objet du Module~D.

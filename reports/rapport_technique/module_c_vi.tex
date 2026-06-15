@@ -1,0 +1,42 @@
+\subsection{Value Iteration}
+\label{sec:c:vi}
+
+\paragraph{Algorithme (from scratch --- Russell \& Norvig, Ch.~17)}
+L'impl\'{e}mentation est r\'{e}alis\'{e}e sans biblioth\`{e}que MDP,
+conform\'{e}ment \`{a} l'exigence §4.3 de compr\'{e}hension th\'{e}orique.
+
+\begin{equation}
+V^*(s) \leftarrow \max_{a} \left[ R(s,a)
+  + \gamma \sum_{s'} P(s' \mid s, a)\, V^*(s') \right]
+\label{eq:bellman}
+\end{equation}
+
+\textbf{Param\`{e}tres utilis\'{'}s :} $\gamma = 0.95$, $\varepsilon = 0.01$, $N = 7$ \'{'}tats, $A = 5$ actions. Convergence en \textbf{281} it\'{'}rations (converg\'{e}).
+
+\begin{table}[H]
+\centering
+\caption{Politique optimale $\pi^*$ --- Value Iteration ($\gamma=0.95$)}
+\label{tab:c:vi_policy}
+\begin{tabular}{lllll}
+\toprule
+\textbf{\'{E}tat} & \textbf{Conf.} & \textbf{Alerte} & \textbf{Action $\pi^*(s)$} & \textbf{$V^*(s)$ FCFA} \\
+\midrule
+  État 0 -- Plaque conforme·Conf.Haute·San & haute & Non & \texttt{LAISSER\_PASSER} & -1\,401 \\
+  État 1 -- Plaque conforme·Conf.Moy·SansA & moyen & Non & \texttt{SIGNALEMENT\_DGI} & 7\,651 \\
+  État 2 -- Plaque conforme·Conf.Faible·Sa & faible & Non & \texttt{LAISSER\_PASSER} & -1\,401 \\
+  État 3 -- Plaque illisible/dégradée·Conf & haute & Non & \texttt{SIGNALEMENT\_DGI} & 10\,625 \\
+  État 4 -- Plaque expirée·Conf.Haute·Sans & haute & Non & \texttt{SIGNALEMENT\_DGI} & 709\,677 \\
+  État 5 -- Plaque expirée·Conf.Moy·SansAl & moyen & Non & \texttt{SIGNALEMENT\_DGI} & 729\,073 \\
+  État 6 -- Plaque expirée·Conf.Faible·San & faible & Non & \texttt{SIGNALEMENT\_DGI} & 709\,677 \\
+
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Interpr\'{e}tation m\'{e}tier MINT/DGI}
+La politique $\pi^*$ obtenue par Value Iteration encode la strat\'{e}gie
+optimale des agents de contr\^{o}le : les plaques du cluster~2 (expir\'{e}es)
+re\c{c}oivent syst\'{e}matiquement un signalement DGI, tandis que les plaques
+conformes (cluster~0 \`{a} confiance haute) sont laiss\'{e}es passer.
+L'analyse de sensibilit\'{e} \`{a} $\gamma$ confirme la robustesse :
+pour $\gamma \in [0.7, 0.99]$, la politique reste stable.

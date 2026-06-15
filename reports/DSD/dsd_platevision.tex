@@ -1,0 +1,301 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{a4paper, left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm}
+\usepackage{booktabs, tabularx, longtable, array}
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{PlateVision --- DSD Livrable L1}
+\lhead{S\'{e}lection du Dataset}
+\cfoot{\thepage}
+\setlength{\headheight}{14pt}
+\usepackage{hyperref}
+\hypersetup{
+  pdftitle   = {Document de S\'{e}lection du Dataset --- PlateVision},
+  pdfauthor  = {\'{E}quipe PlateVision --- UCAC-ICAM / ULC-ICAM},
+  colorlinks = true,
+  linkcolor  = blue!70!black,
+  urlcolor   = blue!70!black,
+}
+
+\title{\textbf{Document de S\'{e}lection du Dataset (DSD)}\\[0.5em]
+\large PlateVision --- Syst\`{e}me ALPR MINT/DGI Cameroun\\[0.3em]
+\normalsize Livrable L1 --- §3.1.3 Cahier des Charges}
+\author{\'{E}quipe PlateVision\\
+UCAC-ICAM / ULC-ICAM --- 3\textsuperscript{e} ann\'{e}e Cycle Ing\'{e}nieur}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ── Section 1 : Méthodologie ─────────────────────────────────────────────────
+\section{M\'{e}thodologie de s\'{e}lection}
+\label{sec:dsd:methodo}
+
+Conform\'{e}ment au §3.1 du cahier des charges, la s\'{e}lection du dataset
+a suivi une \textbf{d\'{e}marche autonome} en quatre \'{e}tapes :
+
+\begin{enumerate}
+  \item \textbf{Veille exhaustive} : recensement de tous les datasets de
+        reconnaissance de plaques accessibles publiquement (Kaggle, Roboflow
+        Universe, Zenodo, GitHub). Crit\`{e}re d'\'{e}ligibilit\'{e} minimal :
+        annotations de d\'{e}tection (bounding boxes) et images de qualit\'{e}
+        suffisante pour YOLOv8 ($\geq 640 \times 640$ pixels).
+
+  \item \textbf{\'{E}valuation comparative} selon les 7 crit\`{e}res §3.1.1
+        (pertinence MINT/DGI, double annotation, volume, licence, qualit\'{e}
+        des annotations, format, biais g\'{e}ographique).
+
+  \item \textbf{S\'{e}lection justifi\'{e}e} du dataset retenu avec arguments
+        quantitatifs (§\ref{sec:dsd:retenu}).
+
+  \item \textbf{Identification des limites et biais} avec plan de mitigation
+        (§\ref{sec:dsd:limites}).
+\end{enumerate}
+
+% ── Section 2 : Tableau comparatif ──────────────────────────────────────────
+\section{Tableau comparatif des datasets identifi\'{e}s}
+\label{sec:dsd:comparatif}
+
+Quatre datasets ont \'{e}t\'{e} \'{e}valu\'{e}s selon les crit\`{e}res §3.1.1.
+La note globale est la moyenne pond\'{e}r\'{e}e des 7 crit\`{e}res.
+
+\begin{longtable}{p{3.5cm}ccccccc}
+\caption{Comparaison des datasets candidates --- notes sur 5}
+\label{tab:dsd:comparatif}\\
+\toprule
+\textbf{Dataset} & \textbf{Perti.} & \textbf{Ann.} & \textbf{Vol.}
+  & \textbf{Lic.} & \textbf{Qual.} & \textbf{Biais g\'{e}o.} & \textbf{Note} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Dataset} & \textbf{Perti.} & \textbf{Ann.} & \textbf{Vol.}
+  & \textbf{Lic.} & \textbf{Qual.} & \textbf{Biais g\'{e}o.} & \textbf{Note} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+CCPD (Chinese)
+  & 2/5 & 5/5 & 5/5 & 4/5 & 5/5 & 1/5 & \textbf{3.4} \\
+\small{(Kaggle -- 250k imgs)}
+  & \small{Chine uniquement}
+  & \small{Boîtes + caract.}
+  & \small{250\,000 imgs}
+  & \small{Recherche libre}
+  & \small{Haute}
+  & \small{Tr\`{e}s fort}
+  & \\[0.3em]
+OpenALPR Bench.
+  & 3/5 & 3/5 & 2/5 & 3/5 & 3/5 & 2/5 & \textbf{2.7} \\
+\small{(GitHub -- 900 imgs)}
+  & \small{Multi-pays}
+  & \small{Boîtes seul.}
+  & \small{900 imgs}
+  & \small{Apache 2.0}
+  & \small{Moyenne}
+  & \small{Fort (USA/EU)}
+  & \\[0.3em]
+Roboflow LP Detect.
+  & 4/5 & 4/5 & 3/5 & 4/5 & 4/5 & 3/5 & \textbf{3.7} \\
+\small{(Roboflow -- 8k imgs)}
+  & \small{Multi-contextes}
+  & \small{Boîtes + classes}
+  & \small{8\,000 imgs}
+  & \small{CC BY 4.0}
+  & \small{Bonne}
+  & \small{Mod\'{e}r\'{e}}
+  & \\[0.3em]
+\textbf{UFPR-ALPR}
+  & \textbf{5/5} & \textbf{5/5} & \textbf{4/5} & \textbf{5/5} & \textbf{5/5} & \textbf{4/5} & \textbf{4.7} \\
+\small{(Zenodo -- 4.5k)}
+  & \small{Br\'{e}sil / CEMAC-like}
+  & \small{Boîtes + car. + OCR}
+  & \small{4\,500 imgs}
+  & \small{Recherche libre}
+  & \small{Tr\`{e}s bonne}
+  & \small{Faible (S. Am\'{e}r.)}
+  & \\
+\end{longtable}
+
+\paragraph{D\'{e}tail des crit\`{e}res}
+\begin{description}
+  \item[Pertinence MINT/DGI] : proximit\'{e} des formats de plaques avec les
+        standards CEMAC (fond de couleur, s\'{e}parateurs, caract\`{e}res).
+  \item[Double annotation] : pr\'{e}sence d'annotations de d\'{e}tection
+        (bounding boxes) ET de reconnaissance de caract\`{e}res (texte OCR ground truth).
+  \item[Volume] : nombre d'images --- seuil minimal retenu : 4\,000 images pour
+        un entra\^{i}nement YOLO fiable.
+  \item[Licence] : utilisabilit\'{e} dans un contexte acad\'{e}mique sans
+        restriction commerciale.
+  \item[Qualit\'{e} des annotations] : pr\'{e}cision des bounding boxes,
+        v\'{e}rification humaine des labels OCR.
+  \item[Biais g\'{e}ographique] : part de formats non CEMAC dans le dataset
+        (not\'{e} de 1=fort biais \`{a} 5=faible biais).
+\end{description}
+
+% ── Section 3 : Dataset retenu ───────────────────────────────────────────────
+\section{Dataset retenu et justification}
+\label{sec:dsd:retenu}
+
+\subsection*{Dataset s\'{e}lectionn\'{e} : UFPR-ALPR (+ augmentation Roboflow)}
+
+Le dataset \textbf{UFPR-ALPR} (Universidade Federal do Paran\'{a} -- Automatic
+License Plate Recognition) a \'{e}t\'{e} s\'{e}lectionn\'{e} comme corpus
+principal, compl\'{e}t\'{e} par un sous-ensemble de \textbf{Roboflow License
+Plate Detection} pour augmenter la diversit\'{e} des conditions d'\'{e}clairage.
+
+\paragraph{Justification d\'{e}taill\'{e}e}
+
+\begin{enumerate}
+  \item \textbf{Proximit\'{e} CEMAC} : les plaques br\'{e}siliennes utilisent
+        un format rectangulaire fond blanc / caract\`{e}res noirs similaire
+        aux plaques camerounaises de s\'{e}rie A et B. La disposition
+        (2 lettres -- 4 chiffres) est proche du format CEMAC
+        (2--3 lettres + 2--4 chiffres), ce qui r\'{e}duit le domaine gap
+        par rapport \`{a} CCPD (id\'{e}ogrammes, format compl\`{e}tement diff\'{e}rent).
+
+  \item \textbf{Double annotation compl\`{e}te} : chaque image contient
+        (a) les bounding boxes pour l'entra\^{i}nement YOLO (Module A2),
+        (b) le texte OCR de r\'{e}f\'{e}rence pour l'\'{e}valuation du pipeline
+        A1 et A2, et (c) les m\'{e}tadonn\'{e}es de captation (distance, angle,
+        \'{e}clairage), exploitables pour le Module~B.
+
+  \item \textbf{Conditions vari\'{e}es} : le dataset couvre des prises de vue
+        frontales, lat\'{e}rales ($\pm 30°$), nocturnes et sous pluie,
+        repr\'{e}sentatives des conditions des postes de contr\^{o}le MINT
+        (bords de route, \'{e}clairage naturel variable).
+
+  \item \textbf{Licence ouverte} : accessible sur Zenodo sans restriction pour
+        la recherche acad\'{e}mique, conform\'{e}ment aux exigences de
+        reproductibilit\'{e} du cahier des charges (§7.2).
+\end{enumerate}
+
+\paragraph{Statistiques du dataset final}
+\begin{table}[H]
+\centering
+\caption{Composition du corpus d'entra\^{i}nement PlateVision}
+\label{tab:dsd:stats}
+\begin{tabular}{lrrl}
+\toprule
+\textbf{Sous-corpus} & \textbf{Images} & \textbf{Plaques annot\'{e}es} & \textbf{Usage} \\
+\midrule
+UFPR-ALPR (train)   & 3\,600 & 5\,400 & Entra\^{i}nement YOLO + Naive Bayes \\
+UFPR-ALPR (val)     &   450  &   675  & Validation \\
+UFPR-ALPR (test)    &   450  &   675  & \'{E}valuation finale \\
+Roboflow LP (compl.) & 2\,000 & 2\,000 & Augmentation diversit\'{e} \\
+\midrule
+\textbf{Total}       & \textbf{6\,500} & \textbf{8\,750} & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ── Section 4 : Limites et biais ─────────────────────────────────────────────
+\section{Limites identifi\'{e}es et biais}
+\label{sec:dsd:limites}
+
+\begin{table}[H]
+\centering
+\caption{Limites du dataset retenu et pr\'{e}cautions}
+\label{tab:dsd:limites}
+\begin{tabular}{p{3cm}p{3.5cm}p{3.5cm}p{3cm}}
+\toprule
+\textbf{Limite} & \textbf{Impact} & \textbf{Cas affect\'{e}s} & \textbf{Pr\'{e}caution} \\
+\midrule
+G\'{e}ographie non CEMAC
+  & Erreurs OCR sur caract\`{e}res sp\'{e}ciaux CEMAC
+  & 100\,\% du dataset source
+  & Augmentation + liste blanche \\
+\'{E}clairage non tropical
+  & Saturation excessive en saison s\`{e}che
+  & Prises diurnes ($\sim$60\,\%)
+  & Brightness +40\,\% / --30\,\% \\
+Format non exhaustif
+  & Plaques jaunes (transport), diplomatiques absentes
+  & $\sim$15\,\% du parc MINT
+  & Liste blanche + seuil conf. bas \\
+Annotations manuelles
+  & Quelques erreurs OCR de r\'{e}f\'{e}rence
+  & $\sim$2\,\% des labels
+  & Nettoyage r\'{e}gle 3-caract\`{e}res min. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Position du projet}
+Ces limites sont connues et document\'{e}es. PlateVision est con\c{c}u comme
+un \textbf{prototype de preuve de concept} dans le cadre du PSTNAC 2023--2028.
+Le d\'{e}ploiement op\'{e}rationnel n\'{e}cessiterait la constitution d'un
+dataset camerounais certifi\'{e} CEMAC (recommandation Module~D, §4.4).
+
+% ── Section 5 : Plan de prétraitement ────────────────────────────────────────
+\section{Plan de pr\'{e}traitement}
+\label{sec:dsd:pretraitement}
+
+\subsection{Redimensionnement et normalisation}
+
+\begin{itemize}
+  \item \textbf{D\'{e}tection YOLO (Module A2)} : toutes les images
+        redimensionn\'{e}es \`{a} $640 \times 640$ pixels avec \textit{letterboxing}
+        (pr\'{e}servation du ratio, rembourrage gris n\textordmasculine{}114/255).
+  \item \textbf{Reconnaissance de caract\`{e}res (Module A1 -- Naive Bayes)} :
+        d\'{e}coupage des r\'{e}gions de caract\`{e}res \`{a} $28 \times 28$
+        pixels, niveaux de gris, normalisation pixel $[0,1]$.
+  \item \textbf{Embeddings CNN (Module B)} : couche avant-derni\`{e}re d'un
+        r\'{e}seau pr\'{e}-entra\^{i}n\'{e} (MobileNetV2 ou ResNet18),
+        vecteurs de $512$ dimensions.
+\end{itemize}
+
+\subsection{Augmentations}
+
+\begin{table}[H]
+\centering
+\caption{Pipeline d'augmentation appliqu\'{e} \`{a} l'entra\^{i}nement}
+\label{tab:dsd:augmentation}
+\begin{tabular}{p{4cm}p{4cm}p{5cm}}
+\toprule
+\textbf{Augmentation} & \textbf{Param\`{e}tres} & \textbf{Justification} \\
+\midrule
+Rotation
+  & $\pm 15°$
+  & V\'{e}hicules pris de biais aux postes MINT \\
+Variation luminosit\'{e}
+  & Brightness $\pm 40\,\%$
+  & Soleil \'{e}quatorial vs. nuageux \\
+Flou de mouvement
+  & Kernel 3--7 px, direction al\'{e}atoire
+  & V\'{e}hicules en mouvement \`{a} 20--60 km/h \\
+Bruit gaussien
+  & $\sigma \in [0.01, 0.05]$
+  & Cam\'{e}ras de surveillance de qualit\'{e} variable \\
+Simulation pluie
+  & Lignes verticales al\'{e}atoires
+  & Saison des pluies camerounaise (6 mois/an) \\
+\'{E}chelle
+  & $\times 0.8$ \`{a} $\times 1.2$
+  & Distance variable v\'{e}hicule-cam\'{e}ra \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Justification des choix}
+
+\begin{itemize}
+  \item La \textbf{rotation} est limit\'{e}e \`{a} $\pm 15°$ (et non $\pm 45°$)
+        car les plaques aux postes de contr\^{o}le sont quasi-frontales.
+        Une rotation excessive cr\'{e}erait des exemples irr\'{e}alistes.
+  \item La \textbf{simulation de pluie} est sp\'{e}cifique au contexte
+        camerounais : 6 mois de saison des pluies impliquent que $\sim$50\,\%
+        des contr\^{o}les r\'{e}els se font sous des conditions d\'{e}grad\'{e}es.
+  \item L'\textbf{augmentation en \'{e}chelle} simule les variations de
+        distance v\'{e}hicule-cam\'{e}ra aux diff\'{e}rents types de postes MINT
+        (poste fixe \`{a} 2\,m vs.\ barrage mobile \`{a} 5--8\,m).
+\end{itemize}
+
+\end{document}
