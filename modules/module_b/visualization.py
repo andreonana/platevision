@@ -103,9 +103,11 @@ def reduce_pca(
     n_components: int = 2,
     random_state: int = 42,
 ) -> tuple[np.ndarray, PCA]:
+    # PCA projette les 256D sur les 2 directions de variance maximale
+    # Les axes ont une signification réelle (combinaisons linéaires des features)
     pca    = PCA(n_components=n_components, random_state=random_state)
     coords = pca.fit_transform(embeddings_scaled).astype(np.float32)
-    var    = pca.explained_variance_ratio_ * 100
+    var    = pca.explained_variance_ratio_ * 100  # % de variance capturée par chaque axe
     logger.info(
         "PCA variance expliquée : PC1=%.1f%%, PC2=%.1f%%, total=%.1f%%",
         var[0], var[1], var.sum(),
@@ -123,6 +125,9 @@ def reduce_tsne(
     n_iter: int = 1000,
     random_state: int = 42,
 ) -> np.ndarray:
+    # t-SNE préserve la structure locale (voisinage) — révèle des groupes que PCA masque
+    # ATTENTION : les axes t-SNE ne sont PAS interprétables (pas de variance expliquée)
+    # perplexity ≈ nb de voisins considérés ; 30 est la valeur standard
     n = len(embeddings_scaled)
     if n > 5000:
         logger.warning("t-SNE sur %d points — calcul long", n)
@@ -284,7 +289,7 @@ def plot_representative_images(
         mask      = cluster_labels == i
         indices_i = np.where(mask)[0]
 
-        # Top n_samples les plus proches du centroïde
+        # Tri par distance au centroïde : les n_samples les plus représentatifs du cluster
         if len(indices_i) == 0:
             top_idx = np.array([], dtype=int)
         else:
@@ -375,6 +380,8 @@ def plot_confidence_distribution(
     conf_colors = ["#2ca02c", "#ff7f0e", "#d62728"]  # vert / orange / rouge
     conf_labels = ["Confiance haute", "Confiance moyenne", "Confiance faible"]
 
+    # Comptage des 3 niveaux (0=haute, 1=moyenne, 2=faible) par cluster
+    # → permet de voir si un cluster est homogène (proche centroïde) ou dispersé
     counts = np.zeros((k, 3), dtype=int)
     for i in range(k):
         mask = metadata["cluster_id"] == i

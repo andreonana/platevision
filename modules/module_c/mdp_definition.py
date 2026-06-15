@@ -130,10 +130,12 @@ def compute_ocr_thresholds(
 
     ocr = metadata["ocr_conf"].dropna().values
 
+    # Terciles : seuils calculés sur les données réelles pour équilibrer les classes
     if method == "terciles":
-        q33 = float(np.nanpercentile(ocr, 33))
-        q66 = float(np.nanpercentile(ocr, 66))
+        q33 = float(np.nanpercentile(ocr, 33))  # ≈ frontière bas/moyen
+        q66 = float(np.nanpercentile(ocr, 66))  # ≈ frontière moyen/haute
     elif method == "fixed":
+        # Seuils fixes calibrés MINT (utiles pour reproductibilité inter-sessions)
         q33 = 0.5
         q66 = 0.8
     else:
@@ -171,12 +173,14 @@ def discretize_ocr(
     Applique les seuils pour produire un vecteur de niveaux 0/1/2.
     Utilise confidence_level directement si ocr_conf absent.
     """
+    # Si ocr_conf absent, on réutilise directement confidence_level du Module B4
     if thresholds.get("method") == "from_b4":
         return metadata["confidence_level"].values.astype(np.int32)
 
     ocr = metadata["ocr_conf"].values.astype(np.float32)
     q33 = thresholds["q33"]
     q66 = thresholds["q66"]
+    # Application des seuils : 0=faible (≤q33), 1=moyen (q33<·≤q66), 2=haute (>q66)
     levels = np.where(ocr <= q33, 0, np.where(ocr <= q66, 1, 2)).astype(np.int32)
     return levels
 
@@ -236,6 +240,8 @@ def build_cartesian_states(
     """
     Génère les k × n_conf × 2 combinaisons théoriques (cluster, conf, alerte).
     """
+    # Produit cartésien complet : tous les triplets (cluster, conf, alerte) théoriques
+    # Certains seront éliminés par prune_states si jamais observés dans les données
     states = list(itertools.product(range(k), range(n_conf), range(2)))
     logger.info(
         "Produit cartésien : %d clusters × %d niveaux conf × 2 alertes = %d états",
@@ -299,7 +305,8 @@ def prune_states(
     retained = list(all_states)
     eliminated: list[tuple] = []
 
-    # ── Étape 1 : jamais observés ─────────────────────────────────────────────
+    # ── Étape 1 : jamais observés — états non représentés dans metadata.csv
+    # Ces états sont théoriquement possibles mais absents des données d'entraînement
     n_avant = len(retained)
     retained_new = [t for t in retained if observations.get(t, 0) > 0]
     elim_new = [t for t in retained if observations.get(t, 0) == 0]
@@ -307,7 +314,8 @@ def prune_states(
     retained = retained_new
     logger.info("Pruning étape 1 (jamais observés) : %d → %d états", n_avant, len(retained))
 
-    # ── Étape 2 : trop rares ──────────────────────────────────────────────────
+    # ── Étape 2 : trop rares — fréq < min_frequency (1%) : bruit, pas de signal
+    # Garder des états très rares rendrait les matrices P et R non fiables
     n_avant = len(retained)
     retained_new = [
         t for t in retained

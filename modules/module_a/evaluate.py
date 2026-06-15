@@ -58,10 +58,11 @@ def load_nb_metrics(path: Path = NB_METRICS_PATH) -> dict:
     f1_macro        = float(test.get("f1_macro",        raw.get("f1_macro",        0.0)))
     precision_macro = float(test.get("precision_macro", raw.get("precision_macro", 0.0)))
     recall_macro    = float(test.get("recall_macro",    raw.get("recall_macro",    0.0)))
+    # top3 : le vrai label figure dans les 3 premières classes prédites (pertinent sur 36 classes)
     top3_accuracy   = float(test.get("top3_accuracy",   raw.get("top3_accuracy",   0.0)))
     top_confusions  = test.get("top_confusions", raw.get("top_confusions", []))
 
-    # ── Temps d'inférence ─────────────────────────────────────────────────
+    # Mesure temps inférence si absent du JSON (reproductibilité §3.2.1)
     inf_ms = raw.get("inference_ms_mean") or test.get("inference_ms_mean")
     if inf_ms is None:
         inf_ms = _measure_nb_inference(raw)
@@ -187,7 +188,8 @@ def compute_gains(nb: dict, yolo_ocr: dict) -> dict:
             return "équivalent"
         return "YOLO+OCR" if gain > 0 else "NB"
 
-    # ── Accuracy vs Perfect Read Rate ─────────────────────────────────────
+    # ── Accuracy vs Perfect Read Rate : métriques comparables sur 1 caractère vs 1 plaque
+    # NB prédit le caractère correct ; YOLO+OCR lit la plaque entière correctement
     nb_acc   = nb["accuracy"]
     yo_pread = yolo_ocr.get("perfect_read_rate") or 0.0
     g_acc    = _gain_pct(nb_acc, yo_pread)

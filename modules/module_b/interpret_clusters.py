@@ -30,6 +30,9 @@ except Exception as _e:
 # CONSTANTES MINT/DGI
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Référentiel des 4 procédures opérationnelles MINT/DGI Cameroun
+# Source : Code de la Route n°96/07, Décret MINT §12/2018, Loi Finances DGI 2023
+# → chaque cluster sera mappé vers l'une de ces procédures
 PROCEDURES_MINT_DGI: list[dict] = [
     {
         "id": 0,
@@ -136,6 +139,7 @@ def compute_cluster_stats(metadata: pd.DataFrame) -> pd.DataFrame:
         n_moyenne = int((m["confidence_level"] == 1).sum())
         n_faible  = int((m["confidence_level"] == 2).sum())
 
+        # Caractères les plus fréquents dans ce cluster → indicateur de spécialisation
         top_chars = (
             m["label_char"].value_counts()
             .head(5)
@@ -203,7 +207,7 @@ def assign_cluster_names(
             "n_conf_faible": int(row.get("n_conf_faible", 0)),
         }
 
-        # ── 1. Manual mapping ─────────────────────────────────────────────────
+        # ── 1. Manuel : priorité maximale, défini en CLI par l'utilisateur ──────
         if manual_mapping and str(cid) in manual_mapping:
             override = manual_mapping[str(cid)]
             proc_info = PROCEDURES_MINT_DGI[0].copy()
@@ -233,7 +237,8 @@ def assign_cluster_names(
             logger.info("Cluster %d — CLUSTER_PROCEDURES : %s", cid, enriched["label"])
             continue
 
-        # ── 3. Heuristique automatique ───────────────────────────────────────
+        # ── 3. Heuristique : règles basées sur distance + confiance haute ────────
+        # dist_mean faible + pct_haute élevé → cluster compact = plaque conforme
         pct_haute = float(row.get("pct_conf_haute", 0.0))
         dist_mean = float(row.get("dist_mean", 99.0))
 
@@ -274,9 +279,12 @@ def compare_with_supervised_labels(
     figures_dir = Path(figures_dir)
     figures_dir.mkdir(parents=True, exist_ok=True)
 
+    # Encode les labels caractères en entiers pour ARI/NMI (sklearn attend des entiers)
     y_true = pd.Categorical(metadata["label_char"]).codes
     y_pred = metadata["cluster_id"].values
 
+    # ARI ∈ [-1,1] : 0 = clustering aléatoire, 1 = correspondance parfaite avec labels
+    # NMI ∈ [0,1]  : information mutuelle normalisée entre les deux partitions
     ari = float(adjusted_rand_score(y_true, y_pred))
     nmi = float(normalized_mutual_info_score(y_true, y_pred))
 
@@ -511,6 +519,8 @@ def export_cluster_mapping_json(
         "clusters": clusters_serial,
     }
 
+    # cluster_mapping.json est le fichier pivot B→C : le Module C lit ce JSON
+    # pour connaître k, les procédures associées et le nombre d'états MDP
     out_path = out_dir / "cluster_mapping.json"
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     logger.info("cluster_mapping.json exporté : %s (%d clusters, %d états MDP)",

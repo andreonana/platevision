@@ -55,10 +55,12 @@ def run_both(
     Lance VI et PI avec les mêmes paramètres et mesure le temps wall-clock.
     Retourne dict avec résultats et temps pour chaque algorithme.
     """
+    # Chronométrage VI avec perf_counter (résolution ~100 ns, meilleur que time.time())
     t0 = time.perf_counter()
     vi_result = run_value_iteration(P, R, gamma=gamma, epsilon=epsilon)
     vi_time = time.perf_counter() - t0
 
+    # Même paramètres γ et ε pour une comparaison équitable
     t0 = time.perf_counter()
     pi_result = run_policy_iteration(P, R, gamma=gamma, epsilon=epsilon)
     pi_time = time.perf_counter() - t0
@@ -122,11 +124,13 @@ def compare_policy_quality(
     vi_Q   = vi_result["Q_star"]
     pi_Q   = pi_result["Q_star"]
 
+    # Comparaison état par état : les deux algorithmes doivent produire la même π*
     agreements    = (vi_pi == pi_pi)
     agreement_rate = float(agreements.mean())
     n_agreements  = int(agreements.sum())
     n_disagreements = len(states) - n_agreements
 
+    # Détail des désaccords : utile pour diagnostiquer les Q-values très proches
     disagreements = []
     for s in range(len(states)):
         if not agreements[s]:
@@ -137,6 +141,7 @@ def compare_policy_quality(
                 "state_name": states[s]["label"],
                 "vi_action":  actions[a_vi]["code"],
                 "pi_action":  actions[a_pi]["code"],
+                # Q-diff faible = actions quasi-équivalentes (tie-break numérique)
                 "vi_Q_diff":  float(abs(vi_Q[s, a_vi] - vi_Q[s, a_pi])),
                 "pi_Q_diff":  float(abs(pi_Q[s, a_pi] - pi_Q[s, a_vi])),
             })
@@ -184,6 +189,7 @@ def sensitivity_analysis(
         gammas = GAMMAS_SENSITIVITY
 
     rows = []
+    # Pour chaque γ : lance les deux algos et collecte les métriques clés
     for g in gammas:
         both  = run_both(P, R, gamma=g, epsilon=epsilon)
         conv  = compare_convergence_speed(both)
@@ -192,15 +198,16 @@ def sensitivity_analysis(
         )
         rows.append({
             "gamma":          g,
-            "vi_iter":        conv["vi_iterations"],
-            "pi_iter":        conv["pi_iterations"],
+            "vi_iter":        conv["vi_iterations"],   # itérations Bellman
+            "pi_iter":        conv["pi_iterations"],   # itérations globales PI
             "vi_time_s":      round(conv["vi_wall_time_s"], 4),
             "pi_time_s":      round(conv["pi_wall_time_s"], 4),
-            "agreement_rate": qual["agreement_rate"],
+            "agreement_rate": qual["agreement_rate"],  # 1.0 = politiques identiques
             "vi_V_mean":      round(float(both["vi"]["result"]["V_star"].mean()), 0),
             "pi_V_mean":      round(float(both["pi"]["result"]["V_star"].mean()), 0),
         })
 
+    # DataFrame pandas pour export CSV et génération LaTeX
     df = pd.DataFrame(rows)
 
     print("\nAnalyse de sensibilité γ — VI vs PI")

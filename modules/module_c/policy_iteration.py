@@ -135,17 +135,22 @@ def policy_evaluation(
     Retourne (V, n_eval_iter).
     """
     N = P.shape[0]
+
+    # V^π initialisé à zéro : l'évaluation convergera vers la vraie valeur sous π
     V = np.zeros(N, dtype=np.float64)
     idx = np.arange(N)
 
     # Pré-indexe les tranches correspondant à π (constantes sur tout l'appel)
-    R_pi = R[idx, pi]           # (N,)  — récompenses sous π
-    P_pi = P[idx, pi, :]        # (N, N) — transitions sous π
+    R_pi = R[idx, pi]           # (N,)  — récompenses immédiates sous π fixée
+    P_pi = P[idx, pi, :]        # (N, N) — matrice de transition sous π fixée
 
+    # Boucle d'évaluation : Bellman de contraction pour V^π jusqu'à ε-convergence
     for n_eval_iter in range(1, eval_max_iter + 1):
+        # einsum "sn,n->s" : Σ_s' P^π(s,s') × V(s') — contraction sur l'état suivant
         V_new = R_pi + gamma * np.einsum("sn,n->s", P_pi, V)
         delta = float(np.abs(V_new - V).max())
         V = V_new
+        # Évaluation terminée dès que la variation max est inférieure à eval_epsilon
         if delta < eval_epsilon:
             return V, n_eval_iter
 
@@ -175,8 +180,13 @@ def policy_improvement(
 
     Retourne (pi_new, stable) où stable=True si π_new == π_old partout.
     """
+    # tensordot(P, V, axes=[[2],[0]]) contracte la dim s' de P(N,A,N) avec V(N) → Q(N,A)
     Q = R + gamma * np.tensordot(P, V, axes=[[2], [0]])   # (N, A)
+
+    # Amélioration greedy : pour chaque état, l'action qui maximise Q(s,a)
     pi_new = np.argmax(Q, axis=1).astype(int)
+
+    # Stabilité : si π_new est identique à π_old sur tous les états → convergence globale
     stable = bool(np.array_equal(pi_new, pi_old))
     return pi_new, stable
 
@@ -207,27 +217,34 @@ def run_policy_iteration(
         Jusqu'à stable OU n_iterations >= max_iter
     """
     N = P.shape[0]
+
+    # Politique initiale : action 0 (LAISSER_PASSER) pour tous les états
     pi = np.zeros(N, dtype=int)    # action 0 = LAISSER_PASSER
     n_eval_iterations_total = 0
     iteration_history = []
     converged = False
 
+    # Boucle principale PI : alterne Évaluation et Amélioration jusqu'à stabilité
     for iteration in range(1, max_iter + 1):
+        # Phase 1 : évaluer V^π pour la politique courante (itérations internes)
         V, n_eval = policy_evaluation(pi, P, R, gamma, eval_epsilon=eval_epsilon)
         n_eval_iterations_total += n_eval
 
+        # Phase 2 : améliorer π greedily à partir de V^π (une seule passe)
         pi_new, stable = policy_improvement(V, P, R, gamma, pi)
         n_changes = int((pi_new != pi).sum())
 
         iteration_history.append({
             "iter":             iteration,
             "n_eval":           n_eval,
-            "n_policy_changes": n_changes,
+            "n_policy_changes": n_changes,  # nombre d'états dont l'action a changé
             "stable":           stable,
         })
 
+        # Mise à jour de π pour la prochaine itération
         pi = pi_new
 
+        # Arrêt : si aucune action n'a changé, π* est atteinte
         if stable:
             converged = True
             logger.info(
@@ -242,7 +259,10 @@ def run_policy_iteration(
             "PI non convergée après %d itérations globales", max_iter
         )
 
+    # Q* final calculé depuis V convergé pour fournir les valeurs par action
     Q_star  = R + gamma * np.tensordot(P, V, axes=[[2], [0]])
+
+    # π* extrait comme argmax de Q* (cohérent avec le résultat de policy_improvement)
     pi_star = np.argmax(Q_star, axis=1).astype(int)
 
     return {

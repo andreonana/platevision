@@ -54,38 +54,44 @@ class CharEmbeddingCNN(nn.Module):
     def __init__(self) -> None:
         super().__init__()
 
+        # conv1 : 1→32 canaux, 3×3 padding=1 → BatchNorm stabilise l'entraînement → MaxPool /2
         self.conv1 = nn.Sequential(
             nn.Conv2d(1, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
+            nn.BatchNorm2d(32),   # normalise les activations → convergence plus rapide
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
+            nn.MaxPool2d(2),      # 28×28 → 14×14 : réduit la résolution spatiale
         )
+        # conv2 : 32→64 canaux, détecte des motifs de plus haut niveau
         self.conv2 = nn.Sequential(
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
+            nn.MaxPool2d(2),      # 14×14 → 7×7
         )
+        # conv3 : 64→128 canaux, capture les structures complexes du caractère
         self.conv3 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
+            nn.MaxPool2d(2),      # 7×7 → 3×3 (arrondi inférieur)
         )
 
-        # 128 × 3 × 3 = 1152
+        # Flatten : 128 × 3 × 3 = 1152 dimensions
+        # fc1 = embedding layer : projection 1152D → 256D (espace sémantique)
         self.fc1  = nn.Linear(1152, 256)
+        # Dropout(0.3) : désactive 30% des neurones aléatoirement → régularisation
         self.drop = nn.Dropout(0.3)
+        # fc2 = tête de classification : 256D → 36 logits (0-9 + A-Z)
         self.fc2  = nn.Linear(256, 36)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)
-        x = x.view(x.size(0), -1)          # (N, 1152)
-        embedding = F.relu(self.fc1(x))     # (N, 256) — embedding 256D
-        x = self.drop(embedding)
-        x = self.fc2(x)                     # (N, 36)  — logits
+        x = x.view(x.size(0), -1)          # (N, 1152) — aplatit les feature maps
+        embedding = F.relu(self.fc1(x))     # (N, 256) — vecteur d'embedding du caractère
+        x = self.drop(embedding)            # régularisation pendant l'entraînement
+        x = self.fc2(x)                     # (N, 36)  — logits (pas de softmax ici)
         return x
 
 
@@ -262,6 +268,7 @@ def train_cnn(
             + (" ✓ best" if val_acc > best_acc else "")
         )
 
+        # Checkpoint du meilleur modèle : sauvegarde uniquement si val_acc s'améliore
         if val_acc > best_acc:
             best_acc   = val_acc
             best_epoch = epoch
@@ -275,7 +282,7 @@ def train_cnn(
     logger.info("Meilleur modèle : epoch %d, val_acc=%.2f%%", best_epoch, best_acc)
     logger.info("Poids sauvegardés → %s", model_path)
 
-    # Recharge les meilleurs poids
+    # Recharge les meilleurs poids (pas forcément ceux du dernier epoch)
     ckpt = torch.load(model_path, map_location=dev)
     model.load_state_dict(ckpt["model_state_dict"])
     return model
@@ -376,17 +383,22 @@ def extract_embeddings(
     captured: list[np.ndarray] = []
 
     def _hook(_module, _input, output):
+        # Hook forward : intercepte la sortie de fc1 AVANT le Dropout
+        # ReLU appliqué ici pour que l'embedding soit positif (convention)
         captured.append(F.relu(output).detach().cpu().numpy())
 
+    # Enregistrement du hook sur fc1 : s'active à chaque forward pass
     handle = model.fc1.register_forward_hook(_hook)
 
     X_t = torch.tensor(X[:, np.newaxis, :, :], dtype=torch.float32)
-    with torch.no_grad():
+    with torch.no_grad():  # pas de calcul de gradient → économise mémoire
         for i in tqdm(range(0, len(X_t), batch_size), desc="Extraction embeddings", leave=False):
             model(X_t[i : i + batch_size].to(dev))
 
+    # Supprime le hook pour ne pas le ré-activer lors d'un futur forward
     handle.remove()
 
+    # Concatène tous les batches : résultat (N, 256) float32
     embeddings = np.concatenate(captured, axis=0).astype(np.float32)
     logger.info("Embeddings extraits : %s", embeddings.shape)
     return embeddings

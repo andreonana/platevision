@@ -215,8 +215,9 @@ def justify_signalement_dgi(
     """
     a3 = ACTION_3
     a1 = ACTION_1
-    ratio_dgi     = a3.gain_attendu_fcfa / a3.cout_operationnel_fcfa
-    ratio_control = a1.gain_attendu_fcfa / a1.cout_operationnel_fcfa
+    # Ratio = gain / coût : mesure combien chaque FCFA investi rapporte
+    ratio_dgi     = a3.gain_attendu_fcfa / a3.cout_operationnel_fcfa   # 22.5×
+    ratio_control = a1.gain_attendu_fcfa / a1.cout_operationnel_fcfa   # 5×
 
     texte = f"""ANALYSE COÛT/BÉNÉFICE — ACTION SIGNALEMENT DGI (§4.3)
 {"─" * 65}
