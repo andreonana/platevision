@@ -41,7 +41,7 @@ def _resolve_yolo_device(device: str) -> str:
         return device
     try:
         import torch
-        # torch.cuda.is_available() détecte CUDA ; "0" = première GPU (convention Ultralytics)
+        # "0" = GPU index 0 (NVIDIA RTX 3050 en production) — Ultralytics refuse le string "cuda"
         return "0" if torch.cuda.is_available() else "cpu"
     except ImportError:
         return "cpu"
@@ -316,7 +316,7 @@ def run_module_b(args) -> None:
     else:
         print(f"[B3] k_analysis.txt existant — skip calcul k")
 
-    # Priorité décroissante pour k : CLI > cluster_mapping.json existant > calcul automatique
+    # Résolution de k : --k explicite > cluster_mapping.json > k_auto
     k_final = args.k
     if k_final is None:
         mapping_path = data_dir / "cluster_mapping.json"
@@ -631,7 +631,6 @@ Pipelines :
         "--k", type=int, default=None,
         help="[B] Nombre de clusters K-Means. Si absent : déterminé automatiquement.",
     )
-    # --force-rerun permet au jury de relancer avec un k différent sans effacer manuellement
     parser.add_argument(
         "--force-rerun", action="store_true", dest="force_rerun",
         help="[B] Force la régénération même si les fichiers existent déjà "
@@ -676,10 +675,9 @@ def main() -> None:
     parser = build_parser()
     args   = parser.parse_args()
 
-    # Dispatch : chaque branche appelle le handler du module correspondant
     if args.demo:
         from modules.interface.camera_demo import run_camera_demo
-        # --input = fichier vidéo/image ; --camera = index webcam
+        # source=None → webcam par défaut ; --input accepte chemin vidéo ou image pour la soutenance §5
         source = args.input if args.input else args.camera
         run_camera_demo(
             source      = source,

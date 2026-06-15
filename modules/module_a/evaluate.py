@@ -51,18 +51,17 @@ def load_nb_metrics(path: Path = NB_METRICS_PATH) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         raw = json.load(f)
 
-    # Naviguer dans la structure — supporte {"test": {...}} ou métriques à plat
+    # Supporte deux formats JSON : {"test": {"accuracy": ...}} ou métriques à plat {"accuracy": ...}
     test = raw.get("test", raw)
 
     accuracy        = float(test.get("accuracy",        raw.get("accuracy",        0.0)))
     f1_macro        = float(test.get("f1_macro",        raw.get("f1_macro",        0.0)))
     precision_macro = float(test.get("precision_macro", raw.get("precision_macro", 0.0)))
     recall_macro    = float(test.get("recall_macro",    raw.get("recall_macro",    0.0)))
-    # top3 : le vrai label figure dans les 3 premières classes prédites (pertinent sur 36 classes)
     top3_accuracy   = float(test.get("top3_accuracy",   raw.get("top3_accuracy",   0.0)))
     top_confusions  = test.get("top_confusions", raw.get("top_confusions", []))
 
-    # Mesure temps inférence si absent du JSON (reproductibilité §3.2.1)
+    # ── Temps d'inférence ─────────────────────────────────────────────────
     inf_ms = raw.get("inference_ms_mean") or test.get("inference_ms_mean")
     if inf_ms is None:
         inf_ms = _measure_nb_inference(raw)
@@ -102,6 +101,7 @@ def _measure_nb_inference(raw_metrics: dict) -> float:
         rng = np.random.default_rng(42)
         X_dummy = rng.standard_normal((100, n_features))
 
+        # 100 inférences individuelles : simule le cas réel (1 plaque à la fois au barrage)
         times = []
         for i in range(100):
             x = X_dummy[i : i + 1]
@@ -157,7 +157,8 @@ def load_yolo_metrics(yolo_path: Path = YOLO_METRICS_PATH,
     with open(ocr_path, "r", encoding="utf-8") as f:
         ocr = json.load(f)
 
-    ocr_ms_est = result["inference_ms_mean"] + 27.0  # estimation OCR ~27 ms
+    # 27 ms = overhead EasyOCR estimé (lecture + postprocessing) ajouté au temps de détection YOLO
+    ocr_ms_est = result["inference_ms_mean"] + 27.0
     result.update({
         "mean_cer":           float(ocr.get("mean_cer",          0.0)),
         "mean_wer":           float(ocr.get("mean_wer",          0.0)),
@@ -188,8 +189,7 @@ def compute_gains(nb: dict, yolo_ocr: dict) -> dict:
             return "équivalent"
         return "YOLO+OCR" if gain > 0 else "NB"
 
-    # ── Accuracy vs Perfect Read Rate : métriques comparables sur 1 caractère vs 1 plaque
-    # NB prédit le caractère correct ; YOLO+OCR lit la plaque entière correctement
+    # ── Accuracy vs Perfect Read Rate ─────────────────────────────────────
     nb_acc   = nb["accuracy"]
     yo_pread = yolo_ocr.get("perfect_read_rate") or 0.0
     g_acc    = _gain_pct(nb_acc, yo_pread)

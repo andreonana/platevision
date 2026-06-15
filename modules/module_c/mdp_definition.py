@@ -116,6 +116,7 @@ def compute_ocr_thresholds(
     has_ocr = ("ocr_conf" in metadata.columns
                and not metadata["ocr_conf"].isna().all())
 
+    # Sans ocr_conf, on recycle confidence_level de B4 (terciles dist_centroid) : 0=haute, 1=moyenne, 2=faible
     if not has_ocr:
         logger.warning(
             "ocr_conf non disponible — confidence_level utilisé à la place "
@@ -130,12 +131,10 @@ def compute_ocr_thresholds(
 
     ocr = metadata["ocr_conf"].dropna().values
 
-    # Terciles : seuils calculés sur les données réelles pour équilibrer les classes
     if method == "terciles":
-        q33 = float(np.nanpercentile(ocr, 33))  # ≈ frontière bas/moyen
-        q66 = float(np.nanpercentile(ocr, 66))  # ≈ frontière moyen/haute
+        q33 = float(np.nanpercentile(ocr, 33))
+        q66 = float(np.nanpercentile(ocr, 66))
     elif method == "fixed":
-        # Seuils fixes calibrés MINT (utiles pour reproductibilité inter-sessions)
         q33 = 0.5
         q66 = 0.8
     else:
@@ -173,14 +172,12 @@ def discretize_ocr(
     Applique les seuils pour produire un vecteur de niveaux 0/1/2.
     Utilise confidence_level directement si ocr_conf absent.
     """
-    # Si ocr_conf absent, on réutilise directement confidence_level du Module B4
     if thresholds.get("method") == "from_b4":
         return metadata["confidence_level"].values.astype(np.int32)
 
     ocr = metadata["ocr_conf"].values.astype(np.float32)
     q33 = thresholds["q33"]
     q66 = thresholds["q66"]
-    # Application des seuils : 0=faible (≤q33), 1=moyen (q33<·≤q66), 2=haute (>q66)
     levels = np.where(ocr <= q33, 0, np.where(ocr <= q66, 1, 2)).astype(np.int32)
     return levels
 
@@ -202,10 +199,12 @@ def infer_alerte_cnn(
     """
     n = len(metadata)
 
+    # Priorité décroissante : signal CNN direct > proxy OCR faible (<0.3) > proxy conformité texte
     if "alerte_cnn" in metadata.columns:
         alerte = metadata["alerte_cnn"].values.astype(np.int32)
         source = "alerte_cnn"
     elif "ocr_conf" in metadata.columns and not metadata["ocr_conf"].isna().all():
+        # Seuil 0.3 empirique : en dessous, le modèle est quasi certain de l'erreur de lecture
         alerte = (metadata["ocr_conf"].fillna(1.0) < 0.3).astype(np.int32)
         source = "ocr_conf<0.3"
     elif "conformite" in metadata.columns:
@@ -240,8 +239,6 @@ def build_cartesian_states(
     """
     Génère les k × n_conf × 2 combinaisons théoriques (cluster, conf, alerte).
     """
-    # Produit cartésien complet : tous les triplets (cluster, conf, alerte) théoriques
-    # Certains seront éliminés par prune_states si jamais observés dans les données
     states = list(itertools.product(range(k), range(n_conf), range(2)))
     logger.info(
         "Produit cartésien : %d clusters × %d niveaux conf × 2 alertes = %d états",
@@ -305,8 +302,8 @@ def prune_states(
     retained = list(all_states)
     eliminated: list[tuple] = []
 
-    # ── Étape 1 : jamais observés — états non représentés dans metadata.csv
-    # Ces états sont théoriquement possibles mais absents des données d'entraînement
+    # ── Étape 1 : jamais observés ─────────────────────────────────────────────
+    # Transition impossible si état non observé → P[s,a,s'] non estimable empiriquement
     n_avant = len(retained)
     retained_new = [t for t in retained if observations.get(t, 0) > 0]
     elim_new = [t for t in retained if observations.get(t, 0) == 0]
@@ -314,8 +311,8 @@ def prune_states(
     retained = retained_new
     logger.info("Pruning étape 1 (jamais observés) : %d → %d états", n_avant, len(retained))
 
-    # ── Étape 2 : trop rares — fréq < min_frequency (1%) : bruit, pas de signal
-    # Garder des états très rares rendrait les matrices P et R non fiables
+    # ── Étape 2 : trop rares ──────────────────────────────────────────────────
+    # min_frequency=1% : état présent moins d'une fois sur 100 → probabilité trop incertaine pour le MDP
     n_avant = len(retained)
     retained_new = [
         t for t in retained
@@ -335,6 +332,7 @@ def prune_states(
     # ── Étape 3 : fusion niveaux de confiance si encore > n_max ──────────────
     if len(retained) > n_max:
         n_avant = len(retained)
+        # Fusion binaire 0=faible / 1=élevé : réduit k×3×2 → k×2×2, applicable seulement si espace encore trop grand
         # Fusionne conf 1 et 2 → 1 (binaire : 0=faible, 1=élevé)
         merged: dict[tuple, int] = {}
         for (c, l, a), cnt in observations.items():

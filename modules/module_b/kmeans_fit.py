@@ -67,8 +67,6 @@ def load_and_scale(
     embeddings = np.load(emb_path).astype(np.float32)
     metadata   = pd.read_csv(meta_path)
 
-    # StandardScaler obligatoire : K-Means minimise les distances euclidiennes
-    # → une dimension à grande variance dominerait sans normalisation
     scaler            = StandardScaler()
     embeddings_scaled = scaler.fit_transform(embeddings).astype(np.float32)
 
@@ -90,9 +88,7 @@ def fit_kmeans(
     n_init: int = 10,
     max_iter: int = 300,
 ) -> KMeans:
-    # n_init=10 : relance 10 fois avec initialisations aléatoires différentes,
-    # retient la partition à inertie minimale — évite les minima locaux
-    # random_state=42 : reproductibilité garantie pour le rapport jury
+    # n_init=10 : lance 10 initialisations aléatoires et garde la meilleure (inertie minimale)
     km = KMeans(
         n_clusters=k,
         random_state=random_state,
@@ -115,9 +111,6 @@ def compute_distances_to_centroids(
     km: KMeans,
 ) -> np.ndarray:
     """Vectorisé : pas de boucle Python."""
-    # km.cluster_centers_[km.labels_] indexe le centroïde de chaque point
-    # np.linalg.norm(..., axis=1) calcule la norme L2 (distance euclidienne)
-    # → mesure l'ambiguïté : distance grande = caractère difficile à classer
     dists = np.linalg.norm(
         embeddings_scaled - km.cluster_centers_[km.labels_], axis=1
     ).astype(np.float32)
@@ -138,12 +131,11 @@ def discretize_distance(
       1 = moyenne  (q33 < dist ≤ q66)
       2 = faible   (distance > q66 — cas ambigu)
     """
-    # Terciles de la distribution des distances → seuils adaptatifs sur ce jeu de données
+    # Terciles empiriques sur dist_centroid réelles — les seuils s'adaptent à chaque dataset
     q33 = float(np.percentile(distances, 33))
     q66 = float(np.percentile(distances, 66))
 
-    # np.where imbriqué : 0=haute confiance (proche centroïde), 1=moyenne, 2=faible
-    # Ces 3 niveaux deviennent la dimension conf_ocr des états MDP du Module C §4.3
+    # 0=haute (≤q33, proche centroïde), 1=moyenne, 2=faible (>q66, cas ambigu pour le MDP)
     levels = np.where(distances <= q33, 0,
              np.where(distances <= q66, 1, 2)).astype(np.int32)
 
@@ -169,13 +161,10 @@ def enrich_metadata(
     confidence_levels: np.ndarray,
 ) -> pd.DataFrame:
     metadata = metadata.copy()
-    # cluster_id + confidence_level sont les deux premières dimensions de l'état MDP
-    # S = cluster_id × confidence_level × alerte_cnn → k×3×2 états (§4.3)
     metadata["cluster_id"]        = km.labels_.astype(np.int32)
     metadata["dist_centroid"]     = distances.astype(np.float32)
     metadata["confidence_level"]  = confidence_levels.astype(np.int32)
     metadata["confidence_label"]  = [_CONFIDENCE_LABELS[l] for l in confidence_levels]
-    # Procédure MINT/DGI associée au cluster : bridge vers la logique décisionnelle (Module C)
     metadata["mint_dgi_procedure"] = [
         CLUSTER_PROCEDURES.get(int(c), {}).get("procedure", "à_définir")
         for c in km.labels_
@@ -215,10 +204,7 @@ def save_results(
     centroids_path = data_dir / "kmeans_centroids.npy"
 
     metadata.to_csv(meta_path, index=False, encoding="utf-8")
-    # kmeans_model.pkl sauvegarder avec joblib pour éviter pickling instable de sklearn
     joblib.dump(km,     km_path)
-    # scaler sauvegardé séparément : nécessaire pour normaliser les nouveaux embeddings
-    # en production (même μ/σ que l'entraînement — sinon data leakage implicite)
     joblib.dump(scaler, scaler_path)
     np.save(centroids_path, km.cluster_centers_)
 

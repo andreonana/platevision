@@ -83,10 +83,8 @@ def preprocess_features(X_train, X_val, X_test) -> tuple:
     Retourne : (X_train_scaled, X_val_scaled, X_test_scaled, scaler)
     """
     scaler = StandardScaler()
-    # fit_transform sur X_train seulement : évite la fuite de données (data leakage)
-    # Si on fittait sur tout le jeu, les seuils seraient influencés par val/test → biais
+    # fit uniquement sur X_train : évite la fuite de données (data leakage) vers val/test
     X_train_scaled = scaler.fit_transform(X_train)
-    # transform uniquement sur val/test : applique les paramètres appris sur train
     X_val_scaled   = scaler.transform(X_val)
     X_test_scaled  = scaler.transform(X_test)
     logger.info("Normalisation appliquée — moyenne X_train_scaled ≈ %.4f", X_train_scaled.mean())
@@ -99,11 +97,9 @@ def train_naive_bayes(X_train, y_train) -> GaussianNB:
     Affiche : temps d'entraînement, accuracy sur train.
     Retourne : modèle entraîné
     """
-    # var_smoothing=1e-9 : ajoute une petite variance à toutes les classes pour éviter
-    # la division par zéro quand une feature est constante dans une classe (variance nulle)
+    # var_smoothing=1e-9 : ajoute ε×max(var) à chaque variance — empêche P(x|c)=0 sur features à variance nulle
     model = GaussianNB(var_smoothing=1e-9)
     t0 = time.perf_counter()
-    # .fit() calcule μ_c et σ_c pour chaque (feature, classe) : coût O(N·D·C) très rapide
     model.fit(X_train, y_train)
     elapsed = time.perf_counter() - t0
 
@@ -128,14 +124,12 @@ def evaluate_model(model, scaler, X_val, y_val, X_test, y_test,
     for split_name, X, y in [("val", X_val, y_val), ("test", X_test, y_test)]:
         X_scaled = scaler.transform(X)
         y_pred   = model.predict(X_scaled)
-        # predict_proba retourne P(c|x) pour chaque classe selon la loi de Bayes naïve
         y_proba  = model.predict_proba(X_scaled)
 
         n_classes_present = len(np.unique(y))
         k = min(3, n_classes_present)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            # top3_accuracy : le vrai label est dans les 3 premiers — métrique moins stricte
             top3_acc = top_k_accuracy_score(y, y_proba, k=k, labels=np.arange(len(class_names)))
 
         results[split_name] = {
@@ -152,7 +146,6 @@ def evaluate_model(model, scaler, X_val, y_val, X_test, y_test,
                     results[split_name]["top3_accuracy"])
 
     # Matrice de confusion sur le jeu de test
-    # Matrice de confusion 36×36 : repère les confusions critiques (0↔O, 1↔I, 8↔B)
     X_test_scaled = scaler.transform(X_test)
     y_pred_test   = model.predict(X_test_scaled)
     cm = confusion_matrix(y_test, y_pred_test, labels=np.arange(len(class_names)))
@@ -191,10 +184,9 @@ def analyze_errors(model, scaler, X_test, y_test, class_names) -> dict:
     X_test_scaled = scaler.transform(X_test)
     y_pred = model.predict(X_test_scaled)
     cm = confusion_matrix(y_test, y_pred, labels=np.arange(len(class_names)))
-    # Annule la diagonale : on cherche les erreurs, pas les prédictions correctes
     np.fill_diagonal(cm, 0)
 
-    # Indices des 10 valeurs les plus élevées hors diagonale → top confusions
+    # Indices des 10 valeurs les plus élevées hors diagonale
     flat_indices = np.argsort(cm.ravel())[::-1][:10]
     top_confusions = []
     for idx in flat_indices:
@@ -235,6 +227,7 @@ def generate_pedagogical_report(model, scaler, X_test, y_test,
     lines += [f"{'═'*54}", "SECTION 1 — Paires de caractères les plus confondues",
               f"{'═'*54}", ""]
 
+    # Paires MINT/DGI critiques : confusion cause des faux signalements ou laissez-passer erronés
     CRITICAL = [("0", "O"), ("1", "I"), ("8", "B"), ("5", "S"), ("6", "G")]
     critical_set = {frozenset(p) for p in CRITICAL}
 

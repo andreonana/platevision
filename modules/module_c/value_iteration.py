@@ -104,31 +104,21 @@ def run_value_iteration(
         Jusqu'à delta < epsilon OU iter > max_iter
     """
     N, A, _ = P.shape
-
-    # ── Initialisation de V à zéro : pas d'information a priori sur la valeur des états
     V = np.zeros(N, dtype=np.float64)
     delta_history = []
     converged = False
     n_iterations = 0
 
-    # Boucle principale de Value Iteration : répète jusqu'à convergence ou limite d'itérations
     for iteration in range(1, max_iter + 1):
-        # Q(s,a) = R(s,a) + γ × Σ_s' P(s,a,s') × V(s') — calculé pour tous les (s,a) simultanément
-        # P.dot(V) contracte la dimension s' (dernière dim de P) avec V : P(N,A,N) × V(N) → (N,A)
+        # Q(s,a) = R(s,a) + γ Σ_s' P(s,a,s') V(s')  — vectorisé
+        # P shape (N, A, N), V shape (N,) → P @ V shape (N, A)
         Q = R + gamma * P.dot(V)       # (N, A)
-
-        # Valeur optimale de chaque état = meilleure action disponible
         V_new = Q.max(axis=1)          # (N,)
-
-        # Critère de convergence : variation maximale entre V_new et V sur tous les états
         delta = float(np.abs(V_new - V).max())
         delta_history.append(delta)
-
-        # Mise à jour de V pour l'itération suivante (propagation des valeurs)
         V = V_new
         n_iterations = iteration
 
-        # Arrêt dès que la variation max est inférieure au seuil ε → politique stable
         if delta < epsilon:
             converged = True
             logger.info(
@@ -142,10 +132,7 @@ def run_value_iteration(
             "VI non convergée après %d itérations (delta=%.6f)", max_iter, delta
         )
 
-    # Recalcul de Q* final avec V convergé pour extraire la politique optimale
     Q_star  = R + gamma * P.dot(V)
-
-    # π*(s) = argmax_a Q*(s,a) : pour chaque état, l'action qui maximise la valeur
     pi_star = Q_star.argmax(axis=1).astype(int)
 
     return {

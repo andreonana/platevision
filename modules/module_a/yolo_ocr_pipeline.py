@@ -116,22 +116,19 @@ def train_yolo(yaml_path: Path = YAML_PATH,
     logger.info("Démarrage entraînement YOLOv8n — epochs=%d, batch=%d, device=%s",
                 epochs, batch, device)
 
-    # Chargement depuis yolov8n.pt : poids COCO pré-entraînés (transfer learning)
-    # Le modèle nano (3.2M params) est choisi pour la contrainte embarquée MINT
     model = YOLO("yolov8n.pt")
     model.train(
         data=str(yaml_path.absolute()),
-        epochs=epochs,    # 50 epochs : convergence fine-tuning sur dataset ALPR
-        imgsz=imgsz,      # 640 : résolution standard YOLOv8 pour détection de boîtes
-        batch=batch,      # 16 : équilibre mémoire GPU / stabilité gradient
-        device=device,    # "auto" : GPU si CUDA disponible, sinon CPU
+        epochs=epochs,
+        imgsz=imgsz,
+        batch=batch,
+        device=device,
         project=str(RUNS_DIR),
         name="platevision",
         exist_ok=True,
         verbose=True,
     )
 
-    # best.pt = poids du meilleur epoch (mAP@0.5 max sur validation)
     best_pt = RUNS_DIR / "platevision" / "weights" / "best.pt"
     if not best_pt.exists():
         raise FileNotFoundError(f"best.pt introuvable après entraînement : {best_pt}")
@@ -165,9 +162,7 @@ def evaluate_yolo(weights_path: Path = None,
 
     model = YOLO(str(weights_path))
 
-    # ── Métriques mAP (obligatoires §4.1 A2) ──────────────────────────────
-    # mAP@0.5 = aire sous la courbe précision-rappel à IoU ≥ 0.5
-    # mAP@0.5:0.95 = moyenne sur IoU 0.5, 0.55, ..., 0.95 (plus stricte)
+    # ── Métriques mAP ──────────────────────────────────────────────────────
     val_results = model.val(data=str(Path(yaml_path).absolute()), split="test")
     map50     = float(val_results.box.map50)
     map50_95  = float(val_results.box.map)
@@ -484,7 +479,7 @@ def read_plate_ocr(crop: np.ndarray,
             gpu = False
         reader = easyocr.Reader(lang_list or ["en"], gpu=gpu)
 
-    # allowlist : EasyOCR ignore tous les caractères hors A-Z et 0-9 (plaques MINT)
+    # Allowlist restreint EasyOCR aux caractères alphanumériques — évite les artefacts OCR (accents, ponctuation)
     allowlist = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     raw_results = reader.readtext(
         crop,
@@ -493,13 +488,12 @@ def read_plate_ocr(crop: np.ndarray,
         allowlist=allowlist,
     )
 
-    # Trier par position x (gauche → droite) pour reconstruire la plaque dans l'ordre
+    # Trier par position x (gauche → droite) : les plaques camerounaises se lisent gauche→droite
     # easyocr retourne list[tuple[bbox, text, conf]]
     raw_results.sort(key=lambda r: r[0][0][0])  # type: ignore[index]
 
     raw_text = "".join(str(r[1]) for r in raw_results)  # type: ignore[index]
     confidences: list[float] = [float(r[2]) for r in raw_results]  # type: ignore[index]
-    # Confiance globale = moyenne des confiances de chaque segment de texte détecté
     confidence = float(np.mean(confidences)) if confidences else 0.0
     plate_text = postprocess_ocr_text(raw_text)
 
@@ -525,7 +519,8 @@ def compute_cer(reference: str, hypothesis: str) -> float:
 
     r, h = list(reference), list(hypothesis)
     n, m = len(r), len(h)
-    # Programmation dynamique Levenshtein : dp[j] = distance(r[0..i], h[0..j])
+    # Programmation dynamique O(n×m) — dp[j] = distance d'édition(r[:i], h[:j])
+    # Implémentation from scratch : pas de dépendance python-Levenshtein ou nltk
     dp = list(range(m + 1))
 
     for i in range(1, n + 1):
@@ -533,12 +528,10 @@ def compute_cer(reference: str, hypothesis: str) -> float:
         dp[0] = i
         for j in range(1, m + 1):
             if r[i - 1] == h[j - 1]:
-                dp[j] = prev[j - 1]  # caractères identiques : pas d'erreur
+                dp[j] = prev[j - 1]
             else:
-                # Coût 1 pour substitution, insertion ou suppression
                 dp[j] = 1 + min(prev[j], dp[j - 1], prev[j - 1])
 
-    # CER = nb_erreurs / nb_chars_reference : 0 = lecture parfaite, 1 = tout faux
     return dp[m] / n
 
 

@@ -128,8 +128,6 @@ def compute_elbow(
         km = KMeans(n_clusters=k, random_state=random_state, n_init=n_init)
         km.fit(embeddings_scaled)
         ks.append(k)
-        # Inertie = somme des distances² de chaque point à son centroïde
-        # On cherche le coude : au-delà de k=coude, gagner un cluster apporte peu
         inertias.append(float(km.inertia_))
         tqdm.write(f"  k={k} → inertie={km.inertia_:.1f}")
     return ks, inertias
@@ -178,13 +176,13 @@ def find_optimal_k(
     inertias: list[float],
     silhouettes: list[float],
 ) -> dict:
-    # Dérivée seconde de l'inertie : le coude correspond au point d'inflexion maximal
-    delta1       = np.diff(inertias)   # variation de l'inertie entre k consécutifs
-    delta2       = np.diff(delta1)     # accélération de la variation (dérivée seconde)
-    k_elbow      = ks[int(np.argmax(delta2)) + 1]  # k au coude = argmax(Δ²)
-    # Score silhouette ∈ [-1,1] : 1 = clusters denses et bien séparés, 0 = ambigu
+    # delta2 = dérivée seconde des inerties : son maximum localise le point de coude (inflexion maximale)
+    delta1       = np.diff(inertias)
+    delta2       = np.diff(delta1)
+    k_elbow      = ks[int(np.argmax(delta2)) + 1]
     k_silhouette = ks[int(np.argmax(silhouettes))]
-    k_recommended = k_silhouette  # priorité au silhouette sur le coude (plus robuste)
+    # Silhouette est retenu comme critère principal — plus interprétable que le coude pour la soutenance
+    k_recommended = k_silhouette
 
     logger.info(
         "k_elbow=%d | k_silhouette=%d → recommandé : %d",

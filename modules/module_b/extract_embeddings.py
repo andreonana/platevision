@@ -55,7 +55,6 @@ def load_split_data(
     y_parts: list[np.ndarray] = []
     tags: list[str] = []
 
-    # Charge les 3 splits indépendamment pour traçabilité dans metadata.csv
     for split in splits:
         img_path   = data_dir / f"chars_{split}.npy"
         label_path = data_dir / f"chars_labels_{split}.npy"
@@ -71,7 +70,6 @@ def load_split_data(
         y_i = np.load(label_path).astype(np.int64)
         X_parts.append(X_i)
         y_parts.append(y_i)
-        # split_tags trace l'origine (train/val/test) pour chaque embedding dans metadata.csv
         tags.extend([split] * len(X_i))
         logger.info("Split '%s' chargé : %d images", split, len(X_i))
 
@@ -182,35 +180,33 @@ def extract_embeddings_from_model(
     model.eval()
 
     # ── Hook sur fc1 — capture sortie APRÈS ReLU ──────────────────────────────
-    # Le hook s'intercale dans le forward sans modifier le modèle
     captured: list[np.ndarray] = []
 
     def _hook(module, _input, output):
-        # ReLU appliqué ici : convention pour que les embeddings soient ≥ 0
+        # ReLU post-activation : garantit que les embeddings sont ≥ 0 (convention Module B)
+        # Le hook intercepte la sortie brute de fc1 et applique ReLU manuellement
         activated = F.relu(output).detach().cpu().numpy()
         captured.append(activated)
 
-    # register_forward_hook : exécuté après chaque forward de fc1
+    # register_forward_hook : s'exécute à chaque forward pass de fc1, invisible pour fc2
     handle = model.fc1.register_forward_hook(_hook)
 
     # ── Normalisation et reshape ───────────────────────────────────────────────
     X_proc = X.astype(np.float32)
     if X_proc.max() > 1.0:
-        X_proc /= 255.0  # normalise [0,255] → [0,1] si besoin
+        X_proc /= 255.0
     if X_proc.ndim == 3:                      # (N, 28, 28) → (N, 1, 28, 28)
-        X_proc = X_proc[:, np.newaxis, :, :]  # ajoute la dimension canal (grayscale)
+        X_proc = X_proc[:, np.newaxis, :, :]
 
-    # ── Extraction par batches : évite les débordements mémoire GPU ───────────
+    # ── Extraction par batches ─────────────────────────────────────────────────
     n = len(X_proc)
-    with torch.no_grad():  # mode inférence : pas de calcul de gradient
+    with torch.no_grad():
         for start in tqdm(range(0, n, batch_size), desc="Extraction embeddings"):
             batch = torch.tensor(X_proc[start : start + batch_size], device=dev)
-            model(batch)          # forward déclenche le hook → captured s'enrichit
+            model(batch)          # forward déclenche le hook
 
-    # Supprime le hook après usage pour ne pas interférer avec un autre forward
     handle.remove()
 
-    # Concatène tous les résultats : (N, 256) float32
     embeddings = np.concatenate(captured, axis=0).astype(np.float32)
     logger.info("Embeddings extraits : shape %s", embeddings.shape)
     return embeddings

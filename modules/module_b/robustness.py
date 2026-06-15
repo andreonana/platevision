@@ -77,8 +77,6 @@ def run_multiple_seeds(
     Lance K-Means pour chaque graine dans seeds.
     Retourne une liste de dicts (un par seed) avec inertie, silhouette, labels.
     """
-    # Chaque seed produit une partition différente ; on compare ensuite toutes les paires
-    # via ARI pour mesurer la reproductibilité — si ARI > 0.8 = clustering stable
     results = []
     for seed in tqdm(seeds, desc=f"K-Means k={k} — test graines"):
         km = KMeans(
@@ -88,7 +86,6 @@ def run_multiple_seeds(
             max_iter=max_iter,
         )
         km.fit(embeddings_scaled)
-        # sample_size limite le coût O(N²) du score silhouette sur grands N
         sil = float(silhouette_score(embeddings_scaled, km.labels_,
                                      sample_size=min(2000, len(embeddings_scaled)),
                                      random_state=seed))
@@ -114,15 +111,16 @@ def compute_pairwise_ari(results: list[dict]) -> np.ndarray:
     Calcule la matrice ARI (n_seeds × n_seeds) entre toutes les paires de runs.
     ARI = 1.0 → runs identiques | ARI > 0.8 → stable | ARI < 0.5 → instable.
     """
+    # ARI (Adjusted Rand Index) : invariant aux permutations de labels — mesure l'accord structurel entre deux clusterings
     n = len(results)
-    ari_matrix = np.eye(n, dtype=np.float32)  # diagonale = 1 (run comparé à lui-même)
+    ari_matrix = np.eye(n, dtype=np.float32)
     for i in range(n):
         for j in range(i + 1, n):
-            # ARI compare les partitions de deux runs : corrige le hasard (aléatoire → 0)
             ari = float(adjusted_rand_score(results[i]["labels"],
                                             results[j]["labels"]))
+            # Triangle supérieur calculé, puis miroir — évite le calcul en double
             ari_matrix[i, j] = ari
-            ari_matrix[j, i] = ari  # matrice symétrique
+            ari_matrix[j, i] = ari
     return ari_matrix
 
 
@@ -307,8 +305,7 @@ def interpret_stability(
     std_inertia = float(np.std([r["inertia"] for r in seed_results]))
     cv_inertia  = std_inertia / float(np.mean([r["inertia"] for r in seed_results]))
 
-    # Seuils ARI : > 0.8 = stable, 0.5-0.8 = modéré, < 0.5 = instable → justifie Module C
-    # CV = coefficient de variation de l'inertie : faible = convergence reproductible
+    # Seuils ARI : >0.8 = stable, ≥0.5 = modéré, <0.5 = instable → justifie le Module C (MDP) pour absorber l'incertitude
     if mean_ari > 0.8 and cv_inertia < 0.01:
         verdict = "STABLE"
         texte = (

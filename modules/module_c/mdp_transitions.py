@@ -148,22 +148,22 @@ def compute_reclassification_matrix(
     n_samples = embeddings.shape[0]
 
     # Calcule distances euclidiennes à tous les centroïdes pour chaque point
-    # shape (n_samples, k) — mesure l'ambiguïté de classification de chaque image
+    # shape (n_samples, k)
     diffs = embeddings[:, np.newaxis, :] - centroids[np.newaxis, :, :]  # (N, k, 256)
     dists = np.linalg.norm(diffs, axis=2)  # (N, k)
 
-    # Softmax des distances inverses : plus un centroïde est proche, plus sa probabilité est haute
-    # 1e-8 évite la division par zéro si un point est exactement sur un centroïde
+    # Softmax sur distances inverses : point proche du centroïde c → forte p(rester en c)
+    # +1e-8 évite la division par zéro quand un point est exactement sur un centroïde
     scores = 1.0 / (dists + 1e-8)  # (N, k)
     row_sums = scores.sum(axis=1, keepdims=True)
-    probs = scores / row_sums  # (N, k) — chaque ligne somme à 1 : distribution de reclassification
+    probs = scores / row_sums  # (N, k) — chaque ligne somme à 1
 
-    # Agrège par cluster actuel : moyenne des probabilités des points appartenant au cluster c
+    # Agrège par cluster actuel
     reclass = np.zeros((k, k), dtype=np.float64)
     for c in range(k):
         mask = metadata["cluster_id"].values == c
         if mask.sum() == 0:
-            reclass[c, c] = 1.0  # cluster vide : reste sur lui-même
+            reclass[c, c] = 1.0
             continue
         reclass[c] = probs[mask].mean(axis=0)
         # Renormalise pour corriger l'arrondi flottant
@@ -192,9 +192,10 @@ def build_noise_matrix(
     États non retenus (hors espace d'états pruné) sont ignorés.
     """
     encoding = state_space["_encoding_tuples"]
-    # Inverse : state_id → (cluster, conf, alerte) pour retrouver les voisins
+    # Inverse : state_id → (cluster, conf, alerte)
     decoding = {v: k for k, v in encoding.items()}
 
+    # ε=0.10 = valeur centrale de [7%, 15%] (§1.2 taux d'erreur agent MINT) — conservatrice et justifiée
     noise = np.zeros((N, N), dtype=np.float64)
 
     for s in range(N):
@@ -203,7 +204,7 @@ def build_noise_matrix(
 
         neighbors = []
 
-        # Voisins sur la dimension conf_ocr (±1) : erreur de lecture agent MINT
+        # Voisins sur la dimension conf_ocr (±1)
         if conf - 1 >= 0:
             nb = (cluster, conf - 1, alerte)
             if nb in encoding:
@@ -213,7 +214,7 @@ def build_noise_matrix(
             if nb in encoding:
                 neighbors.append(encoding[nb])
 
-        # Voisin sur la dimension alerte (flip 0↔1) : fausse alerte ou alerte manquée
+        # Voisin sur la dimension alerte (flip 0↔1)
         nb_alerte = (cluster, conf, 1 - alerte)
         if nb_alerte in encoding:
             neighbors.append(encoding[nb_alerte])
@@ -222,17 +223,16 @@ def build_noise_matrix(
         neighbors = list(dict.fromkeys(neighbors))
         n_nb = len(neighbors)
 
-        # Avec proba (1-ε) : l'agent lit correctement l'état ; avec ε : erreur vers voisin
         noise[s, s] = 1.0 - epsilon
         if n_nb > 0:
-            p_per_nb = epsilon / n_nb  # bruit ε réparti uniformément sur les voisins
+            p_per_nb = epsilon / n_nb
             for nb_id in neighbors:
                 noise[s, nb_id] += p_per_nb
         else:
-            # Aucun voisin retenu → tout le bruit revient sur s (état absorbant)
+            # Aucun voisin retenu → tout le bruit revient sur s
             noise[s, s] = 1.0
 
-    # Renormalise chaque ligne pour garantir que chaque distribution de transition somme à 1
+    # Renormalise chaque ligne (précaution)
     row_sums = noise.sum(axis=1, keepdims=True)
     noise /= row_sums
 
@@ -418,7 +418,7 @@ def assemble_transition_tensor(T_list: list) -> np.ndarray:
     for a, Ta in enumerate(T_list):
         T[:, a, :] = Ta
 
-    # Vérification stochasticité : chaque P(·|s,a) doit sommer à 1 pour être une distribution valide
+    # Vérification
     row_sums = T.sum(axis=2)  # (N, A)
     ok = np.allclose(row_sums, 1.0, atol=1e-6)
     if not ok:

@@ -206,60 +206,65 @@ def compute_reward(
     alerte_cnn  = int(state["alerte_cnn"])
 
     cluster_type = get_cluster_type(cluster_id, cluster_mapping)
+    # P_FRAUDE lookup : triplet (cluster_type, conf_level, alerte_cnn) → expertise domaine §1.2
     p_fraude = get_fraud_probability(cluster_id, conf_level, alerte_cnn, cluster_mapping)
 
-    # ── A0 — Laisser passer : coût temps-agent, pas de gain fiscal
+    # ── A0 — Laisser passer ──────────────────────────────────────────────────
     if action_id == 0:
         R = -float(COUT_LAISSER_PASSER_FCFA)
-        # Coût d'opportunité si suspect avec alerte : fraude non interceptée → pénalité implicite
+        # Coût d'opportunité si suspect avec alerte : fraude non interceptée
         if cluster_type == "suspect" and alerte_cnn == 1:
             R -= p_fraude * AMENDE_FALSIFICATION_FCFA * 0.1
         return R
 
-    # ── A1 — Contrôle standard : gain espéré (amende) - coût agent - risque contestation
+    # ── A1 — Contrôle standard ───────────────────────────────────────────────
     if action_id == 1:
-        e_gain = p_fraude * AMENDE_LEGERE_FCFA  # gain espéré = P(fraude) × amende
+        # R = P_fraude × 25 000 - 5 000 - risque_contestation
+        e_gain = p_fraude * AMENDE_LEGERE_FCFA
         cout   = float(COUT_CONTROLE_FCFA)
-        # Sur état conforme haute confiance : risque faible de contestation (5% max)
+        # Risque contestation faible si cluster conforme haute confiance sans alerte
         if cluster_type == "conforme" and conf_level == 0 and alerte_cnn == 0:
             risque = (1.0 - p_fraude) * COUT_CONTESTATION_FCFA * 0.05
         else:
             risque = 0.0
         return e_gain - cout - risque
 
-    # ── A2 — Arrêt + saisie : gain élevé si fraude, mais risque contestation fort si innocent
+    # ── A2 — Arrêt + saisie ──────────────────────────────────────────────────
     if action_id == 2:
+        # R = P_fraude × (500 000 + 200 000) - 50 000 - (1 - P_fraude) × 450 000
         gain_si_fraude = AMENDE_FALSIFICATION_FCFA + SAISIE_VEHICULE_FCFA
         e_gain = p_fraude * gain_si_fraude
         cout   = float(COUT_SAISIE_FCFA)
-        risque = (1.0 - p_fraude) * COUT_CONTESTATION_FCFA  # risque plein si fausse alarme
+        risque = (1.0 - p_fraude) * COUT_CONTESTATION_FCFA
         return e_gain - cout - risque
 
-    # ── A3 — Signalement DGI : ratio gain/coût = 22.5× (action la plus efficiente)
+    # ── A3 — Signalement DGI ─────────────────────────────────────────────────
     if action_id == 3:
         if cluster_type == "expire":
-            p_vignette = p_fraude  # cluster expiré → forte probabilité de vignette impayée
+            p_vignette = p_fraude
         else:
             p_vignette = P_FRAUDE_BY_PROFILE.get(
                 (cluster_type, conf_level, alerte_cnn),
                 _P_FRAUDE_DEFAULT[cluster_type] * 0.3,
             )
-        gain_si_vignette = VIGNETTE_MOYENNE_FCFA * (1.0 + VIGNETTE_MAJORATION)  # +25% majorations
+        # gain = vignette moyenne × (1 + majoration 25%) si expiré → pas de risque contestation (administratif)
+        gain_si_vignette = VIGNETTE_MOYENNE_FCFA * (1.0 + VIGNETTE_MAJORATION)
         e_gain = p_vignette * gain_si_vignette
         cout   = float(COUT_DGI_FCFA)
         R = e_gain - cout
-        # Pénalité légère si signalement DGI inutile sur état conforme haute (faux positif fiscal)
+        # Pénalité légère si signalement DGI inutile sur état conforme haute
         if cluster_type == "conforme" and conf_level == 0:
             R -= 5_000.0
         return R
 
-    # ── A4 — Transfert Police Judiciaire : gain ×3 mais risque contestation ×2
+    # ── A4 — Transfert Police Judiciaire ─────────────────────────────────────
     if action_id == 4:
-        # Enquête PJ ×3 (Art. 39-41 Loi n°2010/012) : amende + saisie + dommages connexes
+        # R = P_fraude × (500 000 + 200 000 × 3) - 75 000 - (1 - P_fraude) × 900 000
+        # Enquête PJ ×3 (Art. 39-41 Loi n°2010/012)
         gain_si_fraude = AMENDE_FALSIFICATION_FCFA + SAISIE_VEHICULE_FCFA * 3
         e_gain = p_fraude * gain_si_fraude
         cout   = float(COUT_PJ_FCFA)
-        risque = (1.0 - p_fraude) * COUT_CONTESTATION_FCFA * 2.0  # contestation X2 (enquête lourde)
+        risque = (1.0 - p_fraude) * COUT_CONTESTATION_FCFA * 2.0
         return e_gain - cout - risque
 
     raise ValueError(f"action_id inconnu : {action_id}")
