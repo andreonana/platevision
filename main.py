@@ -14,6 +14,9 @@ Usage rapide :
   python main.py --module B  --k 4 --force-rerun
   python main.py --module B4 --k 3
   python main.py --module B8 --seeds 0 1 42 --n-init-values 5 10 20
+  python main.py --module C  --algorithm VI --gamma 0.95
+  python main.py --module C  --algorithm PI --gamma 0.90
+  python main.py --module C  --algorithm compare --gamma 0.95
   python main.py --pipeline full
   python main.py --prepare-data --from-phase 1
   python main.py --demo                    # démonstrateur caméra temps réel
@@ -382,6 +385,88 @@ def run_module_b(args) -> None:
     print(f"  python main.py --module C")
 
 
+def run_module_c(args) -> None:
+    """
+    Lance le Module C — Processus de Décision Markovien (§4.3 PlateVision).
+
+    Rôle dans PlateVision :
+      Traduit les clusters du Module B en politique de décision optimale π*
+      via un MDP (S, A, P, R, γ) résolu from scratch. Deux algorithmes
+      disponibles : Value Iteration (VI) et Policy Iteration (PI).
+
+    Modes disponibles via --algorithm :
+      VI      : Value Iteration (équation de Bellman itérée jusqu'à convergence)
+      PI      : Policy Iteration (évaluation + amélioration de politique)
+      compare : Compare VI vs PI — vitesse, accord π*, sensibilité γ [défaut]
+
+    Paramètres jury §5 (modifiables en direct) :
+      --gamma FLOAT      : facteur d'actualisation γ ∈ (0,1) (défaut : 0.95)
+      --algorithm STR    : VI | PI | compare                 (défaut : compare)
+    """
+    data_dir    = Path("data/processed")
+    output_dir  = Path("data/processed")
+    figures_dir = Path(args.output or "reports") / "rapport_technique" / "figures"
+    report_dir  = Path(args.output or "reports") / "rapport_technique"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    gamma     = args.gamma
+    algorithm = (args.algorithm or "compare").strip().upper()
+
+    print("\n" + "=" * 60)
+    print(f"MODULE C — MDP PlateVision  (γ={gamma}, algorithme={algorithm})")
+    print("=" * 60)
+
+    if algorithm == "VI":
+        from modules.module_c.value_iteration import run_value_iteration_pipeline
+        run_value_iteration_pipeline(
+            gamma=gamma,
+            data_dir=data_dir,
+            output_dir=output_dir,
+            figures_dir=figures_dir,
+            report_dir=report_dir,
+        )
+
+    elif algorithm == "PI":
+        from modules.module_c.policy_iteration import run_policy_iteration_pipeline
+        run_policy_iteration_pipeline(
+            gamma=gamma,
+            data_dir=data_dir,
+            output_dir=output_dir,
+            figures_dir=figures_dir,
+            report_dir=report_dir,
+        )
+
+    elif algorithm in ("COMPARE", "C"):
+        from modules.module_c.compare_vi_pi import run_comparison_pipeline
+        run_comparison_pipeline(
+            gamma=gamma,
+            data_dir=data_dir,
+            output_dir=output_dir,
+            figures_dir=figures_dir,
+            report_dir=report_dir,
+        )
+
+    else:
+        logger.error(
+            "--algorithm doit être VI, PI ou compare (reçu : %s)", args.algorithm
+        )
+        logger.error(
+            "Exemple : python main.py --module C --algorithm VI --gamma 0.95"
+        )
+        sys.exit(1)
+
+    print("\n" + "=" * 60)
+    print(f"MODULE C TERMINÉ  (γ={gamma})")
+    print("=" * 60)
+    print(f"Figures  : {figures_dir}/")
+    print(f"Rapport  : {report_dir}/module_c_*.tex")
+    print(f"\nCommandes soutenance §5 (changer γ en direct) :")
+    print(f"  python main.py --module C --algorithm VI  --gamma 0.90")
+    print(f"  python main.py --module C --algorithm PI  --gamma 0.99")
+    print(f"  python main.py --module C --algorithm compare --gamma 0.95")
+
+
 def run_prepare_data(args) -> None:
     """
     Lance uniquement la préparation des données (phases 1-8).
@@ -432,6 +517,13 @@ Exemples Module B (§4.2) :
   python main.py --module B4 --k 3
   python main.py --module B8 --seeds 0 1 42 --n-init-values 5 10 20
 
+Exemples Module C (§4.3) — MDP PlateVision :
+  python main.py --module C                              # VI vs PI, γ=0.95 (défaut)
+  python main.py --module C --algorithm VI  --gamma 0.95
+  python main.py --module C --algorithm PI  --gamma 0.90
+  python main.py --module C --algorithm compare --gamma 0.99
+  python main.py --module C --algorithm VI  --gamma 0.50  # sensibilité jury §5
+
 Pipelines :
   python main.py --pipeline full
   python main.py --prepare-data --from-phase 5
@@ -444,12 +536,14 @@ Pipelines :
     group.add_argument(
         "--module",
         choices=["A1", "A2", "A",
-                 "B", "B0", "B1", "B2", "B3", "B4", "B5", "B6", "B8"],
+                 "B", "B0", "B1", "B2", "B3", "B4", "B5", "B6", "B8",
+                 "C"],
         metavar="MODULE",
         help=(
             "Module à exécuter : "
             "A1 (Naïves Bayes) | A2 (YOLO+OCR) | A (comparaison) | "
-            "B (pipeline complet clustering) | B0-B8 (étapes isolées)"
+            "B (pipeline complet clustering) | B0-B8 (étapes isolées) | "
+            "C (MDP — Value Iteration / Policy Iteration, §4.3)"
         ),
     )
     group.add_argument(
@@ -498,6 +592,24 @@ Pipelines :
                         help="[A2] Pipeline YOLO+OCR sur image (démo jury §5)")
     parser.add_argument("--conf",   type=float, default=0.45,
                         help="[A2/demo] Seuil confiance YOLO (défaut : 0.45)")
+
+    # ── Module C ──────────────────────────────────────────────────────────────
+    parser.add_argument(
+        "--gamma", type=float, default=0.95, metavar="GAMMA",
+        help=(
+            "[C] Facteur d'actualisation γ ∈ (0,1) pour le MDP (défaut : 0.95). "
+            "Démo jury §5 : modifier en direct (ex. --gamma 0.99)"
+        ),
+    )
+    parser.add_argument(
+        "--algorithm", type=str, default="compare",
+        choices=["VI", "PI", "compare"],
+        metavar="ALGO",
+        help=(
+            "[C] Algorithme MDP : VI (Value Iteration) | PI (Policy Iteration) | "
+            "compare (VI vs PI, défaut)"
+        ),
+    )
 
     # ── Démo temps réel ───────────────────────────────────────────────────────
     parser.add_argument(
@@ -651,6 +763,9 @@ def main() -> None:
             figures_dir=Path(args.output or "reports") / "rapport_technique" / "figures",
             report_dir=Path(args.output or "reports") / "rapport_technique",
         )
+
+    elif args.module == "C":
+        run_module_c(args)
 
 
 if __name__ == "__main__":
