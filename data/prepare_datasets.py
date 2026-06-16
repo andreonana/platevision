@@ -2059,19 +2059,21 @@ def main():
         # Validation complète (déduplication, flou, labels) sur chars + crops rf
         chars_valides, crops_valides_rf = clean_and_validate(chars_list, plate_crops_rf)
 
-        # Validation légère des crops Mendeley (intégrité image uniquement)
-        # → contribuent au split YOLO (Phase 8) mais pas aux features A1
-        crops_valides_md = [
-            c for c in (plate_crops_md or [])
-            if cv2.imread(c["crop_path"]) is not None
-        ]
-        logger.info(
-            f"Mendeley : {len(crops_valides_md)} crops valides "
-            f"(→ split YOLO Phase 8 uniquement, hors pipeline A1)"
+        # Mendeley EXCLU du split YOLO (Phase 8) : ces images sont des photos de scène
+        # complète (véhicule + décor), pas des gros plans de plaque, et le dataset ne
+        # fournit aucune annotation de localisation réelle. Le label "image entière =
+        # plaque" qui leur était appliqué était donc faux et a entraîné YOLO à détecter
+        # la scène entière au lieu de la plaque (bbox ≈ 99% de l'image en pratique).
+        # Mendeley reste cependant valide et chargé pour analyse exploratoire (Phase 2).
+        crops_valides_md = []
+        logger.warning(
+            f"Mendeley : {len(plate_crops_md or [])} images exclues du split YOLO "
+            f"(Phase 8) — aucune annotation de localisation réelle disponible, "
+            f"'image entière = plaque' est faux pour ce sous-ensemble (photos de scène)."
         )
 
-        # Union pour le split YOLO en Phase 8
-        crops_valides = crops_valides_rf + crops_valides_md
+        # Phase 8 : YOLO entraîné uniquement sur Roboflow (seule source avec bbox réelles)
+        crops_valides = crops_valides_rf
 
         _save_pipeline_state(6, {
             "n_chars_valides":    len(chars_valides),

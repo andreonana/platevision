@@ -676,16 +676,27 @@ def main() -> None:
     args   = parser.parse_args()
 
     if args.demo:
-        from modules.interface.camera_demo import run_camera_demo
-        # source=None → webcam par défaut ; --input accepte chemin vidéo ou image pour la soutenance §5
-        source = args.input if args.input else args.camera
-        run_camera_demo(
-            source      = source,
-            data_dir    = Path("data/processed"),
-            model_dir   = Path("models"),
-            figures_dir = Path(args.output or "reports/figures"),
-            conf_yolo   = args.conf,
-        )
+        # --input accepte chemin vidéo, image unique, ou dossier d'images (mode galerie) — soutenance §5
+        if args.input and Path(args.input).is_dir():
+            from modules.interface.camera_demo import run_gallery_demo
+            run_gallery_demo(
+                image_dir   = Path(args.input),
+                data_dir    = Path("data/processed"),
+                model_dir   = Path("models"),
+                figures_dir = Path(args.output or "reports/figures"),
+                conf_yolo   = args.conf,
+            )
+        else:
+            from modules.interface.camera_demo import run_camera_demo
+            # source=None → webcam par défaut
+            source = args.input if args.input else args.camera
+            run_camera_demo(
+                source      = source,
+                data_dir    = Path("data/processed"),
+                model_dir   = Path("models"),
+                figures_dir = Path(args.output or "reports/figures"),
+                conf_yolo   = args.conf,
+            )
 
     elif args.prepare_data:
         run_prepare_data(args)

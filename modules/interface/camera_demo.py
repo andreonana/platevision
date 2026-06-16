@@ -41,6 +41,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from modules.module_a.yolo_ocr_pipeline import deskew_plate_crop, read_plate_ocr
+from data.prepare_datasets import _resize_plate, _segment_chars_from_plate
+
 logger = logging.getLogger(__name__)
 
 # ── Constantes couleurs BGR ───────────────────────────────────────────────────
@@ -172,15 +175,13 @@ class PlateVisionEngine:
 
     # ── Inférence pipeline A→B→C ─────────────────────────────────────────────
 
-    def extract_embedding(self, plate_bgr: np.ndarray) -> np.ndarray:
+    def embed_char(self, char_img_28: np.ndarray) -> np.ndarray:
         """
-        Module B : extrait l'embedding 256D depuis une image de plaque BGR.
-        Redimensionne en 28×28 niveaux de gris et passe dans CharEmbeddingCNN.
+        Module B : extrait l'embedding 256D d'un caractère 28×28 déjà segmenté
+        (même unité que l'entraînement K-Means — voir _segment_chars_from_plate).
         """
-        gray    = cv2.cvtColor(plate_bgr, cv2.COLOR_BGR2GRAY)
-        resized = cv2.resize(gray, (28, 28), interpolation=cv2.INTER_AREA)
-        norm    = resized.astype(np.float32) / 255.0
-        tensor  = torch.tensor(norm[np.newaxis, np.newaxis]).float()  # (1,1,28,28)
+        norm   = char_img_28.astype(np.float32) / 255.0
+        tensor = torch.tensor(norm[np.newaxis, np.newaxis]).float()  # (1,1,28,28)
 
         captured: list[np.ndarray] = []
 
@@ -209,18 +210,44 @@ class PlateVisionEngine:
         Retourne un dict avec OCR, cluster, état MDP, action optimale.
         """
         # ── A2 : OCR ─────────────────────────────────────────────────────────
-        ocr_raw = self.ocr.readtext(plate_bgr, detail=1)
-        ocr_text = " ".join(r[1] for r in ocr_raw).strip().upper()
-        ocr_conf = float(np.mean([r[2] for r in ocr_raw])) if ocr_raw else 0.0
+        # Même chaîne que le pipeline officiel Module A : deskew + allowlist alphanumérique
+        # + post-traitement (évite de lire le décor/texte parasite autour de la plaque)
+        plate_deskewed = deskew_plate_crop(plate_bgr)
+        ocr_res  = read_plate_ocr(plate_deskewed, reader=self.ocr)
+        ocr_text = ocr_res["plate_text"] or "—"
+        ocr_conf = ocr_res["confidence"]
         alerte_cnn = 1 if ocr_conf < self.ocr_alert_threshold else 0
 
-        # ── B : CNN → K-Means → cluster + conf_level ─────────────────────────
-        embedding  = self.extract_embedding(plate_bgr)
-        emb_scaled = self.scaler.transform(embedding.reshape(1, -1))
-        cluster_id = int(self.kmeans.predict(emb_scaled)[0])
-        centroid   = self.kmeans.cluster_centers_[cluster_id]
-        dist       = float(np.linalg.norm(emb_scaled[0] - centroid))
-        conf_level = self._dist_to_conf_level(dist, cluster_id)
+        # ── B : segmentation caractères → CNN → K-Means → cluster + conf_level ──
+        # Le K-Means a été entraîné sur des CARACTÈRES individuels 28×28 (cf. Module B,
+        # segment_characters() dans data/prepare_datasets.py), pas sur la plaque entière.
+        # On reproduit donc la même segmentation ici, puis on agrège le vote des
+        # caractères détectés — sinon l'embedding d'une plaque entière écrasée en 28×28
+        # est hors distribution et retombe quasi toujours dans le même cluster majoritaire.
+        plate_for_seg = _resize_plate(plate_deskewed)
+        chars = _segment_chars_from_plate(plate_for_seg)
+
+        if chars:
+            cluster_ids, dists = [], []
+            for (_x, _y, _w, _h, char_img_28) in chars:
+                embedding  = self.embed_char(char_img_28)
+                emb_scaled = self.scaler.transform(embedding.reshape(1, -1))
+                cid        = int(self.kmeans.predict(emb_scaled)[0])
+                centroid   = self.kmeans.cluster_centers_[cid]
+                cluster_ids.append(cid)
+                dists.append(float(np.linalg.norm(emb_scaled[0] - centroid)))
+
+            # Cluster majoritaire parmi les caractères détectés sur cette plaque
+            cluster_id = int(np.bincount(cluster_ids).argmax())
+            dist       = float(np.mean([d for d, c in zip(dists, cluster_ids) if c == cluster_id]))
+            conf_level = self._dist_to_conf_level(dist, cluster_id)
+        else:
+            # Aucun caractère segmentable → plaque illisible : confiance faible + alerte,
+            # on ne peut pas prétendre à une lecture fiable du cluster.
+            cluster_id = 0
+            dist       = 0.0
+            conf_level = 2
+            alerte_cnn = 1
 
         # ── C : MDP état → π* ────────────────────────────────────────────────
         key   = (cluster_id, conf_level, alerte_cnn)
@@ -585,9 +612,7 @@ def run_gallery_demo(
             detections = engine.detect_plates(frame_orig)
             last_dets  = detections
             if detections:
-                best = max(detections, key=lambda d: (
-                    (d["bbox"][2] - d["bbox"][0]) * (d["bbox"][3] - d["bbox"][1])
-                ))
+                best = max(detections, key=lambda d: d["yolo_conf"])
                 last_result = engine.classify_plate(best["crop"])
                 logger.info(
                     "[%d/%d] %s | OCR='%s' | Cluster=%d | Action=%s | V*=%.0f FCFA",
@@ -749,10 +774,9 @@ def run_camera_demo(
             last_dets = detections
 
             if detections:
-                # Traite la détection avec le plus grand rectangle
-                best = max(detections, key=lambda d: (
-                    (d["bbox"][2] - d["bbox"][0]) * (d["bbox"][3] - d["bbox"][1])
-                ))
+                # Traite la détection la plus confiante (pas la plus grande bbox,
+                # qui peut englober du bruit autour de la plaque)
+                best = max(detections, key=lambda d: d["yolo_conf"])
                 last_result = engine.classify_plate(best["crop"])
 
                 # Log console

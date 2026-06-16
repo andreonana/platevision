@@ -1,0 +1,13 @@
+# PlateVision — Configuration YOLOv8 (entraînement corrigé)
+# Pointe directement sur le dataset Roboflow annoté (scènes complètes + bbox réelles)
+# au lieu du pipeline Phase 3→8 de data/prepare_datasets.py, qui pré-recadre les
+# plaques avant de leur attribuer un label "image entière = plaque" — ce qui
+# empêche le détecteur d'apprendre à localiser une petite plaque dans une scène.
+path: /home/ems/Documents/projet IA/platevision/data/raw/roboflow/Nigerian License Plate.v1i.yolov5pytorch
+train: train/images
+val: valid/images
+test: test/images
+
+nc: 1
+names:
+  0: plaque_immatriculation
