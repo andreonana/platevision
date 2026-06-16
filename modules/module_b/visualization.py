@@ -170,7 +170,7 @@ def plot_clusters_pca(
     ax.set_xlabel("Composante principale 1", fontsize=11)
     ax.set_ylabel("Composante principale 2", fontsize=11)
     ax.set_title(
-        f"Projection PCA des embeddings CNN — clusters K-Means (k={k})\n"
+        f"Projection PCA des features qualité/lisibilité — clusters K-Means (k={k})\n"
         f"Module B — Familles de plaques MINT/DGI",
         fontsize=12,
     )
@@ -181,7 +181,7 @@ def plot_clusters_pca(
               title_fontsize=8)
 
     ax.annotate(
-        f"N={len(coords_2d)} embeddings | embeddings CNN 256D (§4.2)",
+        f"N={len(coords_2d)} plaques | features qualité 4D (§4.2)",
         xy=(0.01, 0.01), xycoords="axes fraction", fontsize=8, color="gray",
     )
 
@@ -222,7 +222,7 @@ def plot_clusters_tsne(
     ax.set_xlabel("Dimension t-SNE 1", fontsize=11)
     ax.set_ylabel("Dimension t-SNE 2", fontsize=11)
     ax.set_title(
-        f"Projection t-SNE des embeddings CNN — clusters K-Means (k={k})\n"
+        f"Projection t-SNE des features qualité/lisibilité — clusters K-Means (k={k})\n"
         f"Module B — Familles de plaques MINT/DGI",
         fontsize=12,
     )
@@ -233,7 +233,7 @@ def plot_clusters_tsne(
               title_fontsize=8)
 
     ax.annotate(
-        f"N={len(coords_2d)} embeddings | embeddings CNN 256D (§4.2)",
+        f"N={len(coords_2d)} plaques | features qualité 4D (§4.2)",
         xy=(0.01, 0.01), xycoords="axes fraction", fontsize=8, color="gray",
     )
 
@@ -310,9 +310,13 @@ def plot_representative_images(
             if j < len(top_idx):
                 idx = top_idx[j]
 
-                # Priorité 1 — colonne "filename" dans metadata
-                if "filename" in metadata.columns and idx < len(metadata):
-                    fpath = Path(metadata.iloc[idx]["filename"])
+                # Priorité 1 — colonne "filename" ou "crop_path" (clustering qualité
+                # plaque entière, voir plate_quality_features.py) dans metadata
+                path_col = "filename" if "filename" in metadata.columns else (
+                    "crop_path" if "crop_path" in metadata.columns else None
+                )
+                if path_col and idx < len(metadata):
+                    fpath = Path(metadata.iloc[idx][path_col])
                     if fpath.exists():
                         img = cv2.imread(str(fpath), cv2.IMREAD_GRAYSCALE)
                         if img is not None:

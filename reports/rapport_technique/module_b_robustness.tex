@@ -18,21 +18,21 @@ assignations.
         \hline
         \textbf{Graine} & \textbf{Inertie} & \textbf{Score silhouette} & \textbf{Itérations} \\
         \hline
-        0 & 385452.88 & 0.0694 & 23 \\
-        1 & 385452.62 & 0.0683 & 27 \\
-        2 & 385455.44 & 0.0717 & 40 \\
-        7 & 385485.22 & 0.0666 & 55 \\
-        13 & 385453.06 & 0.0670 & 45 \\
-        21 & 385451.72 & 0.0672 & 38 \\
-        42 & 385452.00 & 0.0715 & 53 \\
+        0 & 9993.93 & 0.3083 & 16 \\
+        1 & 9993.93 & 0.3050 & 10 \\
+        2 & 9993.97 & 0.3070 & 15 \\
+        7 & 9993.98 & 0.2918 & 14 \\
+        13 & 9993.97 & 0.2958 & 16 \\
+        21 & 9993.94 & 0.3087 & 12 \\
+        42 & 9993.92 & 0.3046 & 19 \\
         \hline
-        \textbf{Moy. $\pm$ Écart-type} & $385457.56 \pm 11.35$ & $0.0688 \pm 0.0020$ & — \\
+        \textbf{Moy. $\pm$ Écart-type} & $9993.95 \pm 0.02$ & $0.3030 \pm 0.0061$ & — \\
         \hline
     \end{tabular}
 \end{table}
 
 \paragraph{Verdict}
-\textit{Le clustering k=3 est stable : ARI moyen=0.952 entre 7 runs. L'espace d'embeddings CNN présente une structure géométrique robuste — les groupes de plaques MINT/DGI sont bien séparés.}
+\textit{Le clustering k=3 est stable : ARI moyen=0.999 entre 7 runs. L'espace des features qualité/lisibilité présente une structure géométrique robuste — les groupes de plaques MINT/DGI sont bien séparés.}
 
 \paragraph{Recommandation $n_{\text{init}}$}
 
@@ -45,19 +45,19 @@ assignations.
         \hline
         \textbf{$n_{\text{init}}$} & \textbf{Inertie} & \textbf{Silhouette} \\
         \hline
-        1 & 385487.00 & 0.0708 \\
-        5 & 385485.69 & 0.0705 \\
-        10 & 385452.06 & 0.0715 \\
-        20 & 385452.03 & 0.0715 \\
-        50 & 385452.03 & 0.0715 \\
+        1 & 9994.21 & 0.3045 \\
+        5 & 9993.97 & 0.3046 \\
+        10 & 9993.92 & 0.3046 \\
+        20 & 9993.92 & 0.3046 \\
+        50 & 9993.92 & 0.3046 \\
         \hline
     \end{tabular}
 \end{table}
 
-Valeur recommandée : $n_{\text{init}}=10$ (compromis qualité/temps — gain marginal au-delà).
+Valeur recommandée : $n_{\text{init}}=5$ (compromis qualité/temps — gain marginal au-delà).
 
 \paragraph{Impact sur Module C}
-L'instabilité résiduelle (ARI$=0.952$) justifie l'approche
+L'instabilité résiduelle (ARI$=0.999$) justifie l'approche
 MDP du Module C : les probabilités de transition $P(s'|s,a)$ absorbent
 l'incertitude du clustering — un véhicule mal classifié reste gérable
 si la politique optimale $\pi^*$ est robuste à cette incertitude (§4.3).

@@ -230,7 +230,7 @@ def plot_elbow_silhouette(
         arrowprops=dict(arrowstyle="->", color="red", lw=1.2),
     )
     ax1.set_title(
-        "Méthode du coude — Inertie K-Means\n(embeddings CNN 256D)", fontsize=11
+        "Méthode du coude — Inertie K-Means\n(features qualité/lisibilité 4D)", fontsize=11
     )
     ax1.set_xlabel("Nombre de clusters k", fontsize=10)
     ax1.set_ylabel("Inertie (somme distances²)", fontsize=10)
@@ -292,9 +292,11 @@ def analyze_k_coherence_mint_dgi(k_recommended: int) -> str:
 
     if k_recommended == 3:
         body = (
-            "Le k=3 statistique couvre les 3 procédures opérationnelles MINT/DGI\n"
-            "(§4.2) : conformes, illisibles/dégradées, suspectes. La structure\n"
-            "latente des embeddings CNN reproduit la catégorisation administrative."
+            "Le k=3 statistique couvre les 3 paliers de qualité/lisibilité visés\n"
+            "(§4.2) : nette/lisible, dégradée, illisible. La structure latente\n"
+            "des features qualité (netteté, contraste, n_chars, confiance OCR)\n"
+            "sépare ces paliers — la conformité légale (expirée/falsifiée) reste\n"
+            "un fait administratif que la vision seule ne peut pas constater."
         )
     elif k_recommended == 4:
         body = (
@@ -406,7 +408,7 @@ def plot_clusters_pca(
         )
 
     ax.set_title(
-        f"Module B — Clusters K-Means sur embeddings CNN 256D (PCA 2D)\n"
+        f"Module B — Clusters K-Means sur features qualité/lisibilité 4D (PCA 2D)\n"
         f"Familles de plaques MINT/DGI — k={k}",
         fontsize=12,
     )

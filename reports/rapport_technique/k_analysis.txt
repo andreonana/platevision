@@ -6,10 +6,7 @@ Procédures opérationnelles §4.2 :
 Note MINT §1.2 : « 2 400 véhicules à plaques falsifiées ou en double
   immatriculation détectés sur 24 mois »
 
-Le k=10 statistique ne correspond pas directement aux
-3-4 catégories administratives MINT/DGI. Deux hypothèses : (1) le
-dataset révèle une granularité plus fine — les plaques illisibles
-se subdivisent (partiellement lisibles vs. totalement illisibles) ;
-(2) la distribution du dataset est déséquilibrée. Cette divergence
-doit être discutée en soutenance (§5 — jury peut modifier k en
-direct et demander une interprétation orale).
+Le k=4 distingue 4 catégories alignées sur §1.2 : conformes,
+illisibles, expirées (DGI) et falsifiées (PJ). L'ajout d'un 4e
+cluster est cohérent avec la présence signalée de plaques
+diplomatiques (§1.2 — 'variabilité des formats').

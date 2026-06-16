@@ -368,10 +368,10 @@ def generate_cluster_report(
         pct_h      = info.get("pct_conf_haute", 0.0)
         autorite   = info.get("autorite", "—")
         action_mdp = info.get("action_mdp", "—")
-        top_chars  = ", ".join(info.get("top_chars", [])[:3])
+        exemples   = ", ".join(c for c in info.get("top_chars", [])[:3] if c) or "—"
         table_rows.append(
             f"        {cid} & {label} & {n_img} & {pct:.1f}\\% & "
-            f"{dist:.2f} & {pct_h:.1f}\\% & {top_chars} & "
+            f"{dist:.2f} & {pct_h:.1f}\\% & {exemples} & "
             f"{autorite} & \\texttt{{{action_mdp}}} \\\\"
         )
 
@@ -383,21 +383,30 @@ def generate_cluster_report(
 
 \subsection{Familles de plaques identifiées}
 
-L'algorithme K-Means appliqué aux embeddings 256D du CNN \texttt{CharEmbeddingCNN}
-(couche \texttt{fc1}, §\ref{sec:module_b_cnn}) a produit $k=""" + str(k) + r"""$ clusters
-sur un corpus de """ + str(n_total) + r""" images de caractères.
-Chaque cluster est ensuite nommé selon les procédures opérationnelles MINT/DGI
-Cameroun détaillées en §\ref{sec:procedures_mint_dgi}.
+\textbf{Portée et limite assumées} : la vision par ordinateur ne peut pas, à
+elle seule, constater un statut administratif (vignette expirée, plaque
+falsifiée) — ce sont des faits qui dépendent d'un registre DGI/MINT, pas
+d'une propriété de l'image. Le clustering porte donc sur des features de
+\textbf{qualité/lisibilité visuelle} mesurables objectivement : netteté
+(variance du Laplacien), contraste, nombre de caractères segmentables et
+confiance OCR (voir \texttt{modules/module\_b/plate\_quality\_features.py}).
+
+L'algorithme K-Means appliqué à ces 4 features a produit $k=""" + str(k) + r"""$ clusters
+sur un corpus de """ + str(n_total) + r""" plaques (source Roboflow uniquement —
+seule source disposant d'une annotation réelle de localisation de la plaque).
+Chaque cluster est ordonné par qualité décroissante (cluster~0 = la plus
+lisible) puis nommé selon les procédures opérationnelles MINT/DGI Cameroun
+détaillées en §\ref{sec:procedures_mint_dgi}.
 
 \begin{table}[H]
     \centering
     \caption{Clusters K-Means — interprétation MINT/DGI (Module B)}
     \label{tab:clusters_mint_dgi}
     \small
-    \begin{tabular}{c|p{3cm}|r|r|r|r|p{1.8cm}|c|c}
+    \begin{tabular}{c|p{3cm}|r|r|r|r|p{2.4cm}|c|c}
         \hline
         \textbf{ID} & \textbf{Famille} & \textbf{N} & \textbf{\%} &
-        \textbf{Dist.} & \textbf{Conf.H\%} & \textbf{Top chars} &
+        \textbf{Dist.} & \textbf{Conf.H\%} & \textbf{Ex. plaques OCR} &
         \textbf{Autorité} & \textbf{Action MDP} \\
         \hline
 """ + table_body + r"""
@@ -405,10 +414,12 @@ Cameroun détaillées en §\ref{sec:procedures_mint_dgi}.
     \end{tabular}
 \end{table}
 
-\subsection{Cohérence clustering / labels supervisés}
+\subsection{Validation de la séparation des clusters}
 
-La comparaison entre les clusters non supervisés et les labels de caractères
-supervisés donne :
+Il n'existe pas de vérité-terrain "plaque conforme/dégradée/illisible" dans
+ce dataset (statut visuel, pas administratif). On valide donc uniquement que
+les clusters \textbf{séparent bien le signal de qualité} mesuré, via un repère
+binaire indépendant simple — "l'OCR a renvoyé un texte non vide" :
 \begin{itemize}
     \item \textbf{ARI} (Adjusted Rand Index) : $""" + f"{ari:.4f}" + r"""$ —
     mesure la concordance entre partitions (0 = aléatoire, 1 = parfait).
@@ -416,16 +427,17 @@ supervisés donne :
     mesure l'information partagée entre les deux partitions.
 \end{itemize}
 
-Ces valeurs confirment que le K-Means capture des structures visuelles
-cohérentes avec les labels de caractères, tout en révélant des regroupements
-fonctionnels supplémentaires liés aux procédures MINT/DGI
-(voir figure~\ref{fig:cluster_vs_labels_interp}).
+Ces valeurs restent modestes et partiellement circulaires (la confiance OCR a
+servi à construire le cluster) — elles ne prouvent pas une détection de
+fraude, seulement que les paliers de qualité sont cohérents avec un signal
+de lisibilité indépendant (voir figure~\ref{fig:cluster_vs_labels_interp},
+qui montre la séparation des 4 features par cluster).
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.85\textwidth]{figures/cluster_vs_labels_interp.png}
-    \caption{Distribution des clusters K-Means par label de caractère —
-    Module B (ARI=""" + f"{ari:.3f}" + r""", NMI=""" + f"{nmi:.3f}" + r""")}
+    \caption{Séparation des features de qualité par cluster K-Means —
+    Module B (ARI=""" + f"{ari:.3f}" + r""", NMI=""" + f"{nmi:.3f}" + r""" vs. succès OCR)}
     \label{fig:cluster_vs_labels_interp}
 \end{figure}
 
@@ -442,7 +454,7 @@ par terciles globaux :
 \end{itemize}
 
 En combinant les $k=""" + str(k) + r"""$ clusters, les 3 niveaux de confiance
-et le signal d'alerte binaire du CNN, on obtient
+et le signal d'alerte binaire OCR, on obtient
 $k \times 3 \times 2 = """ + str(k * 3 * 2) + r"""$ états MDP pour le Module C
 (§\ref{sec:module_c_mdp}).
 

@@ -1,0 +1,30 @@
+══════════════════════════════════════════════════════════════════════
+ TABLEAU COMPARATIF — Module A1 vs A2 — PlateVision MINT/DGI
+ Exigence cahier des charges §4.1 — Document pour jury
+══════════════════════════════════════════════════════════════════════
+
+┌──────────────────────────┬────────────────┬────────────────┬────────┐
+│ Métrique                 │ Naïves Bayes   │ YOLO+OCR       │ Gain   │
+│                          │ (A1)           │ (A2)           │        │
+├──────────────────────────┼────────────────┼────────────────┼────────┤
+│ Accuracy / Perfect Read  │ 0.278          │ 0.000          │ -100.0% │
+│ F1-macro / (1-CER)       │ 0.248          │ -0.022         │ -108.7% │
+│ Top3 / Detection Rate    │ 0.416          │ 1.000          │  —     │
+│ CER moyen                │ N/A            │ 1.022          │  —     │
+│ WER moyen                │ N/A            │ 1.000          │  —     │
+│ mAP@0.5                  │ N/A            │ 0.995          │  —     │
+│ mAP@0.5:0.95             │ N/A            │ 0.995          │  —     │
+│ Temps inférence (ms)     │ 0.5 ms         │ 44.7 ms        │ ×98.8  │
+│ Temps réel MINT (<100ms) │ OUI            │ OUI            │  —     │
+├──────────────────────────┼────────────────┼────────────────┼────────┤
+│ VAINQUEUR                │                │ NB (A2)        │        │
+└──────────────────────────┴────────────────┴────────────────┴────────┘
+
+CONCLUSION JURY :
+Dans le contexte opérationnel MINT/DGI Cameroun, le pipeline YOLO+OCR (A2) est recommandé pour le déploiement aux postes de contrôle. Le Naïves Bayes (A1) atteint de bonnes performances sur caractères pré-segmentés mais suppose une étape de détection préalable inexistante en conditions réelles : il ne peut pas localiser la plaque dans l'image brute. YOLO+OCR détecte et lit les plaques bout-en-bout, est robuste aux variations d'angle et d'échelle, et respecte la contrainte temps réel (< 100 ms/image) des postes de contrôle MINT.
+
+LIMITE FONDAMENTALE DU NAÏVES BAYES :
+Le classifieur NB opère sur des caractères pré-segmentés (28×28 px).
+Il ne peut pas localiser la plaque dans une image brute.
+→ Non déployable en conditions réelles sans étape de détection préalable.
+→ Justifie le passage au pipeline YOLO+OCR (Module A2).

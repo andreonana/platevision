@@ -1,0 +1,68 @@
+══════════════════════════════════════════════════════
+RAPPORT PÉDAGOGIQUE — Module A1 Naïves Bayes
+══════════════════════════════════════════════════════
+
+══════════════════════════════════════════════════════
+SECTION 1 — Paires de caractères les plus confondues
+══════════════════════════════════════════════════════
+
+Top-15 paires les plus confondues :
+  • '6' → 'B' : 3 fois | 'B' → '6' : 2 fois
+  • '6' → 'G' : 2 fois | 'G' → '6' : 3 fois  [CRITIQUE MINT/DGI]
+  • '4' → 'A' : 3 fois | 'A' → '4' : 1 fois
+  • '4' → 'H' : 1 fois | 'H' → '4' : 3 fois
+  • '8' → 'O' : 4 fois | 'O' → '8' : 0 fois
+  • 'A' → 'G' : 4 fois | 'G' → 'A' : 0 fois
+  • 'D' → 'O' : 4 fois | 'O' → 'D' : 0 fois
+  • 'H' → 'W' : 3 fois | 'W' → 'H' : 1 fois
+  • 'V' → 'W' : 4 fois | 'W' → 'V' : 0 fois
+  • '1' → 'B' : 2 fois | 'B' → '1' : 1 fois
+  • '2' → 'A' : 2 fois | 'A' → '2' : 1 fois
+  • '2' → 'S' : 3 fois | 'S' → '2' : 0 fois
+  • '4' → '8' : 1 fois | '8' → '4' : 2 fois
+  • '8' → 'B' : 1 fois | 'B' → '8' : 2 fois  [CRITIQUE MINT/DGI]
+  • 'A' → 'J' : 1 fois | 'J' → 'A' : 2 fois
+
+Détail paires critiques MINT/DGI :
+  • '0' → 'O' : 1 fois | 'O' → '0' : 0 fois
+  • '1' → 'I' : 0 fois | 'I' → '1' : 1 fois
+  • '8' → 'B' : 1 fois | 'B' → '8' : 2 fois
+  • '5' → 'S' : 0 fois | 'S' → '5' : 0 fois
+  • '6' → 'G' : 2 fois | 'G' → '6' : 3 fois
+
+══════════════════════════════════════════════════════
+SECTION 2 — Pourquoi l'indépendance conditionnelle est violée
+══════════════════════════════════════════════════════
+
+Corrélation de Pearson calculée sur X_test (363 samples, 120 features).
+Paires de features avec |r| > 0.7 : 3 paires sur 7140 possibles.
+
+L'hypothèse Naïves Bayes suppose P(x1,...,x120|y) = ∏P(xi|y).
+Cette hypothèse est violée pour des images car :
+  1. Les pixels adjacents d'une même zone partagent la même encre/couleur
+     → forte corrélation spatiale locale (mesurée : 3 paires |r|>0.7).
+  2. Les 96 bins HSV sont contraints à sommer à 1.0 par canal
+     → corrélation négative systématique entre bins voisins.
+  3. Les densités zonales (groupe B) sont corrélées entre zones adjacentes.
+Conséquence : GaussianNB sous-estime la probabilité des classes similaires
+et surestime sa confiance, ce qui nuit à la discrimination 0/O et 1/I.
+
+══════════════════════════════════════════════════════
+SECTION 3 — Impact opérationnel MINT/DGI
+══════════════════════════════════════════════════════
+
+Impact opérationnel — confusion '0'/'O' (MINT/DGI) :
+  Sur le jeu de test, le modèle a confondu '0' et 'O' 1 fois.
+  Dans le contexte MINT : une plaque lue 'AB123OC' au lieu de 'AB1230C'
+  génère une requête sur une plaque inexistante dans la base nationale
+  → le véhicule frauduleux n'est PAS détecté (faux négatif sécuritaire).
+  Dans le contexte DGI : une plaque valide lue incorrectement déclenche
+  une alerte injustifiée → contrôle abusif, contestation juridique,
+  coût opérationnel (estimé à 22% des charges selon diagnostic MINT/DGI).
+  Taux de confusion 0↔O observé : 7.14%
+  Conclusion : ce taux est inacceptable pour un déploiement opérationnel
+  → justifie le passage au pipeline A2 (YOLO + EasyOCR).
+
+Confusion '1'/'I' observée : 1 fois.
+
+══════════════════════════════════════════════════════

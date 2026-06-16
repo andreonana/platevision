@@ -577,10 +577,10 @@ def generate_comparison_latex(
         sens_rows_tex += (
             f"  {row['gamma']:.2f} & {int(row['vi_iter'])} & {int(row['pi_iter'])} & "
             f"{row['vi_time_s']:.4f} & {row['pi_time_s']:.4f} & "
-            f"{row['agreement_rate']:.0%} \\\\\n"
+            f"{row['agreement_rate'] * 100:.0f}\\% \\\\\n"
         )
 
-    agree_str = "identique à 100\\,\\%" if rate == 1.0 else f"{rate:.0%}"
+    agree_str = "identique à 100\\,\\%" if rate == 1.0 else f"{rate * 100:.0f}\\%"
 
     lines = [
         r"\subsection{Comparaison Value Iteration et Policy Iteration}",

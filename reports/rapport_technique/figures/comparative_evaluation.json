@@ -1,0 +1,102 @@
+{
+  "nb": {
+    "accuracy": 0.27823691460055094,
+    "f1_macro": 0.24808921536473078,
+    "precision_macro": 0.26180839479450596,
+    "recall_macro": 0.27443760850623594,
+    "top3_accuracy": 0.41597796143250687,
+    "inference_ms_mean": 0.4521541504072957,
+    "top_confusions": [
+      [
+        "A",
+        "G",
+        4
+      ],
+      [
+        "8",
+        "O",
+        4
+      ],
+      [
+        "V",
+        "W",
+        4
+      ],
+      [
+        "D",
+        "O",
+        4
+      ],
+      [
+        "4",
+        "A",
+        3
+      ],
+      [
+        "J",
+        "B",
+        3
+      ],
+      [
+        "2",
+        "S",
+        3
+      ],
+      [
+        "H",
+        "W",
+        3
+      ],
+      [
+        "C",
+        "Y",
+        3
+      ],
+      [
+        "H",
+        "4",
+        3
+      ]
+    ]
+  },
+  "yolo_ocr": {
+    "map50": 0.9949908466819223,
+    "map50_95": 0.994779999847721,
+    "precision": 0.9997473932328161,
+    "recall": 1.0,
+    "inference_ms_mean": 17.657979800424073,
+    "realtime_ok": true,
+    "mean_cer": 1.0215630823671025,
+    "mean_wer": 1.0,
+    "detection_rate": 1.0,
+    "perfect_read_rate": 0.0,
+    "mean_ocr_conf": 0.05821093457686587,
+    "inference_total_ms": 44.65797980042407
+  },
+  "gains": {
+    "accuracy_vs_perfect_read": {
+      "nb": 0.27823691460055094,
+      "yolo_ocr": 0.0,
+      "gain_pct": -100.0,
+      "winner": "NB"
+    },
+    "f1_vs_1_minus_cer": {
+      "nb": 0.24808921536473078,
+      "yolo_ocr": -0.0216,
+      "gain_pct": -108.69,
+      "winner": "NB"
+    },
+    "inference_ratio": {
+      "nb_ms": 0.45,
+      "yolo_ocr_ms": 44.66,
+      "ratio": 98.77,
+      "comment": "YOLO+OCR est 98.8× plus lent que NB par image, mais reste sous le seuil temps réel MINT (100 ms)."
+    },
+    "overall_winner": "NB",
+    "jury_conclusion": "Dans le contexte opérationnel MINT/DGI Cameroun, le pipeline YOLO+OCR (A2) est recommandé pour le déploiement aux postes de contrôle. Le Naïves Bayes (A1) atteint de bonnes performances sur caractères pré-segmentés mais suppose une étape de détection préalable inexistante en conditions réelles : il ne peut pas localiser la plaque dans l'image brute. YOLO+OCR détecte et lit les plaques bout-en-bout, est robuste aux variations d'angle et d'échelle, et respecte la contrainte temps réel (< 100 ms/image) des postes de contrôle MINT."
+  },
+  "figures": [
+    "reports/rapport_technique/figures/comparative_figure.png",
+    "reports/rapport_technique/figures/comparative_table.txt"
+  ]
+}

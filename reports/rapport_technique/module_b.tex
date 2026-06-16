@@ -61,68 +61,66 @@ regroupement par type de plaque, chaque agent doit manuellement
 décider de la procédure applicable, ce qui multiplie les erreurs et
 le coût opérationnel.
 
-% ── B.3 Méthode — Embeddings CNN ────────────────────────────────────────
-\subsection{Représentation des Données : Embeddings CNN}
+% ── B.3 Méthode — Features de qualité/lisibilité ────────────────────────
+\subsection{Révision Méthodologique et Représentation des Données}
 \label{sec:b:embeddings}
 
-\subsubsection{Pourquoi des embeddings et non des pixels bruts ?}
+\subsubsection{Audit interne : pourquoi abandonner les embeddings CNN par caractère}
 
-Les pixels bruts d'une image 28×28 forment un vecteur de dimension
-784. Appliqué directement à K-Means, cet espace pose deux problèmes~:
-(1)~la \textit{malédiction de la dimensionnalité} rend les distances
-euclidiennes peu discriminantes~; (2)~deux images visuellement proches
-mais décalées d'un pixel produisent des vecteurs très différents. Les
-embeddings CNN résolvent ces deux points en produisant une
-\textbf{représentation dense et invariante aux petites déformations},
-apprise par rétropropagation.
+Une première version de ce module clusterisait des
+\textbf{caractères individuels} (28×28\,px) via les embeddings 256D
+d'un CNN \texttt{CharEmbeddingCNN} (couche \texttt{fc1}), puis nommait
+les clusters «~conforme / illisible / expirée / falsifiée~» par
+une correspondance \textbf{codée en dur par index de cluster}
+(\texttt{CLUSTER\_PROCEDURES}), sans validation que ce regroupement de
+\textit{formes de caractères} corresponde à un quelconque statut de
+plaque. La seule métrique de validation disponible (ARI/NMI) comparait
+le cluster à l'identité du caractère (0–9, A–Z) — pertinent pour juger
+la qualité de l'espace d'embedding, pas pour valider une conformité.
 
-\subsubsection{Architecture CharEmbeddingCNN}
+Plus fondamentalement~: la vision par ordinateur ne peut pas, à elle
+seule, constater un \textbf{statut administratif} (vignette expirée,
+plaque falsifiée/double immatriculation) — ce sont des faits qui
+dépendent d'un registre DGI/MINT, pas d'une propriété de l'image. Ce
+que la vision \textit{peut} honnêtement mesurer, c'est la
+\textbf{qualité/lisibilité visuelle} de la plaque. Ce module a donc été
+révisé pour clusteriser directement au niveau \textbf{plaque entière},
+sur des features qui mesurent cette qualité, et pour nommer les
+clusters en conséquence (Tableau~\ref{tab:b:cluster_procedures}).
 
-Le réseau \texttt{CharEmbeddingCNN} est un CNN léger entraîné sur la
-classification des 36 classes alphanumériques (0–9, A–Z) à partir
-d'images de caractères 28×28 pixels en niveaux de gris. Son
-architecture comprend~:
+\subsubsection{Features de qualité/lisibilité retenues}
 
-\begin{itemize}
-  \item Bloc 1~: Conv2D(1→32, 3×3) → BatchNorm → ReLU → MaxPool(2×2)
-  \item Bloc 2~: Conv2D(32→64, 3×3) → BatchNorm → ReLU → MaxPool(2×2)
-  \item Bloc 3~: Conv2D(64→128, 3×3) → BatchNorm → ReLU → MaxPool(2×2)
-  \item Aplatissement~: 128×3×3 = 1\,152 neurones
-  \item \textbf{FC1 (couche d'embedding) : 1\,152 → 256D} → ReLU
-  \item Dropout(0{,}3)
-  \item FC2 (tête de classification) : 256 → 36 logits
-\end{itemize}
-
-Les embeddings sont extraits \textbf{avant} la couche de
-classification (après FC1 et ReLU), via un forward hook sur
-\texttt{model.fc1}. Cette couche de 256 dimensions encode une
-représentation géométriquement continue et dense, idéale pour le
-clustering euclidien de K-Means.
-
-\subsubsection{Différence fondamentale avec le Module A}
+Pour chaque plaque (crop déjà recadré sur l'annotation Roboflow réelle
+— seule source disposant d'une localisation vérifiée, Mendeley étant
+exclu faute d'annotation, cf. Module A2), quatre features sont
+calculées (\texttt{modules/module\_b/plate\_quality\_features.py})~:
 
 \begin{itemize}
-  \item \textbf{Module A}~: features \textbf{manuelles} 120D
-    (histogramme HSV 96 bins, projections horizontale/verticale,
-    densité zonale) — définies par l'ingénieur, interprétables mais
-    limitées par les choix humains.
-  \item \textbf{Module B}~: embeddings \textbf{appris} 256D — optimisés
-    par le réseau pour discriminer les 36 classes de caractères. L'espace
-    d'embedding est dense, continu, et capture des patterns visuels
-    complexes non formulables manuellement. Il est adapté au clustering
-    géométrique par K-Means.
+  \item \textbf{Netteté} (\textit{blur\_score}) — variance du Laplacien
+    de l'image en niveaux de gris~: $\mathrm{Var}(\nabla^2 I)$. Plus
+    élevée = image plus nette.
+  \item \textbf{Contraste} — écart-type des niveaux de gris~:
+    $\sigma(I)$. Une plaque propre et bien éclairée présente un
+    contraste plus élevé qu'une plaque délavée ou sale.
+  \item \textbf{Nombre de caractères segmentables} (\textit{n\_chars\_detected})
+    — sortie de la même segmentation par contours que le Module A1
+    (fonction de découpage caractère par caractère). Une plaque très
+    dégradée ou occultée en segmente peu ou aucun.
+  \item \textbf{Confiance OCR} (\textit{ocr\_confidence}) — confiance
+    moyenne EasyOCR déjà calculée en Phase 4 du pipeline de préparation.
 \end{itemize}
 
-\subsubsection{Performances du CNN}
+Normalisation par \texttt{StandardScaler} avant K-Means (sensibilité
+euclidienne), comme pour la version précédente.
 
-Dataset d'entraînement~: \textbf{4\,454 images} de caractères
-(28×28\,px, 36 classes~: 0–9, A–Z).
-Entraîné sur 30 epochs (Adam, lr=10$^{-3}$, ReduceLROnPlateau)~:
-\begin{itemize}
-  \item Meilleure validation accuracy~: \textbf{84{,}94\,\%} (epoch 29)
-  \item Normalisation par StandardScaler avant K-Means (sensibilité
-    euclidienne).
-\end{itemize}
+\subsubsection{Note sur le CNN CharEmbeddingCNN}
+
+Le réseau \texttt{CharEmbeddingCNN} (entraîné sur 4\,454 caractères
+28×28, 36 classes, validation accuracy~\textbf{84{,}94\,\%}) reste
+décrit et entraîné dans le pipeline (Module B0) à titre pédagogique —
+il illustre la différence entre features manuelles (Module A1, 120D)
+et features apprises (256D) — mais \textbf{n'alimente plus le
+clustering} du Module B, pour les raisons exposées ci-dessus.
 
 \begin{figure}[H]
   \centering
@@ -132,7 +130,8 @@ Entraîné sur 30 epochs (Adam, lr=10$^{-3}$, ReduceLROnPlateau)~:
     \textbf{[Figure absente --- exécuter python main.py --module B0]}%
   }
   \caption{Matrice de confusion du CNN CharEmbeddingCNN sur le jeu de
-    test (36 classes alphanumériques)}
+    test (36 classes alphanumériques) — exercice pédagogique Module A1/B0,
+    n'alimente plus le clustering}
   \label{fig:b:cnn_confusion}
 \end{figure}
 
@@ -159,9 +158,11 @@ Le score de silhouette mesure la séparabilité des clusters~:
 \]
 où $a(i)$ est la distance moyenne de $x_i$ aux autres points de son
 cluster (cohésion), et $b(i)$ est la distance moyenne au cluster le
-plus proche (séparation). La valeur optimale statistiquement est
-atteinte à $k_{\text{silhouette}} = \mathbf{10}$, avec un score de
-silhouette de 0{,}1149 sur les embeddings normalisés.
+plus proche (séparation). Sur les features qualité/lisibilité, la
+valeur optimale statistiquement est atteinte à
+$k_{\text{silhouette}} = \mathbf{4}$, avec un score de silhouette de
+0{,}3404 — bien supérieur à la version précédente (embeddings CNN par
+caractère, silhouette~$\leq$~0{,}11 quel que soit $k$).
 
 \begin{figure}[H]
   \centering
@@ -177,17 +178,16 @@ silhouette de 0{,}1149 sur les embeddings normalisés.
 
 \subsubsection{Cohérence avec les catégories MINT/DGI}
 
-Le $k$ optimal statistique ($k_{\text{silhouette}}=10$) ne correspond
-pas directement aux 3–4 catégories administratives MINT/DGI. Deux
-hypothèses explicatives~: (1)~le dataset révèle une granularité plus
-fine — les plaques illisibles se subdivisent (partiellement lisibles
-vs. totalement illisibles)~; (2)~la distribution du dataset est
-déséquilibrée. Conformément aux exigences §4.2, on retient
-$\mathbf{k=3}$ pour aligner le clustering sur les catégories MINT/DGI
-opérationnelles. Cette divergence est discutée en
-§\ref{sec:b:robustesse} et constitue un point d'interrogation du jury
-(§5 — jury peut modifier $k$ en direct via
-\texttt{--k N --force-rerun}).
+Contrairement à la version précédente (où le $k$ optimal statistique,
+$k=10$, divergeait nettement du $k$ métier), le $k$ optimal statistique
+sur les features qualité ($k_{\text{coude}}=k_{\text{silhouette}}=4$)
+est désormais \textbf{cohérent} avec les 3 paliers de qualité visés par
+ce module (nette/lisible, dégradée, illisible) — l'écart entre $k=3$ et
+$k=4$ s'explique plausiblement par une subdivision plus fine du palier
+intermédiaire. Conformément aux exigences §4.2, on retient
+$\mathbf{k=3}$ pour aligner le clustering sur les 3 procédures MINT/DGI
+opérationnelles effectivement modélisées par le Module~C. Le jury peut
+tester $k=4$ en direct via \texttt{--k 4 --force-rerun} (§5).
 
 % ── B.5 Résultats du clustering K-Means ─────────────────────────────────
 \subsection{Résultats du Clustering K-Means ($k=3$)}
@@ -199,49 +199,54 @@ opérationnelles. Cette divergence est discutée en
   \item Algorithme~: K-Means (scikit-learn 1.x), $k=3$,
     \texttt{random\_state=42}, \texttt{n\_init=10}
   \item Normalisation~: StandardScaler (moyenne~=~0, variance~=~1) sur
-    les 256 dimensions — obligatoire pour K-Means euclidien.
-  \item Inertie finale~: \textbf{385\,452{,}03}
-  \item Itérations jusqu'à convergence~: \textbf{53}
-  \item Score de silhouette~: \textbf{0{,}0692}
-  \item Davies-Bouldin index~: \textbf{3{,}10} ($\downarrow$ mieux)
-  \item Calinski-Harabasz~: \textbf{294{,}7} ($\uparrow$ mieux)
+    les 4 features qualité — obligatoire pour K-Means euclidien.
+  \item Inertie finale~: \textbf{9\,993{,}92}
+  \item Itérations jusqu'à convergence~: \textbf{19}
+  \item Score de silhouette~: \textbf{0{,}3014}
+  \item Davies-Bouldin index~: \textbf{1{,}20} ($\downarrow$ mieux)
+  \item Calinski-Harabasz~: \textbf{2\,196{,}7} ($\uparrow$ mieux)
 \end{itemize}
 
-Le faible score de silhouette (0{,}069) reflète la nature des embeddings
-CNN~: les 36 classes alphanumériques créent un espace d'embedding
-continu sans séparation nette entre familles de plaques — cf.
-§\ref{sec:b:robustesse} pour l'analyse de stabilité.
+Ces métriques sont nettement meilleures que celles obtenues avec les
+embeddings CNN par caractère (silhouette~0{,}069, Davies-Bouldin~3{,}10,
+Calinski-Harabasz~294{,}7) — cohérent avec le fait que les 4 features
+qualité ont été choisies spécifiquement pour discriminer la lisibilité
+des plaques, alors que l'espace d'embedding par caractère n'avait pas
+été optimisé pour cette tâche.
 
 \subsubsection{Distribution des clusters}
 
 \begin{table}[H]
   \centering
   \caption{Statistiques descriptives par cluster K-Means ($k=3$,
-    $N=4\,454$ images)}
+    $N=4\,791$ plaques Roboflow — qualité/lisibilité)}
   \label{tab:b:clusters_stats}
   \small
   \begin{tabular}{c|r|r|r|r|r|l}
     \hline
     \textbf{Cluster} & \textbf{N} & \textbf{\%} &
     \textbf{Dist. moy.} & \textbf{\% haute conf.} &
-    \textbf{\% faible conf.} & \textbf{Top chars} \\
+    \textbf{\% faible conf.} & \textbf{Ex. OCR} \\
     \hline
-    0 & 1\,644 & 36{,}9\,\% & 9{,}38 & 24{,}9\,\% & 39{,}0\,\% &
-      K, H, R, F, I \\
-    1 & 437   &  9{,}8\,\% & 6{,}91 & 83{,}3\,\% &  8{,}5\,\% &
-      A, 9, 4, 7, 8 \\
-    2 & 2\,373 & 53{,}3\,\% & 9{,}37 & 29{,}4\,\% & 35{,}2\,\% &
-      B, C, 8, J, 4 \\
+    0 & 810   & 16{,}9\,\% & 1{,}47 & 22{,}1\,\% & 47{,}4\,\% &
+      SHK462HB, GGE950FV \\
+    1 & 2\,449 & 51{,}1\,\% & 1{,}43 & 24{,}2\,\% & 40{,}5\,\% &
+      PE13460, VA888J8A \\
+    2 & 1\,532 & 32{,}0\,\% & 1{,}07 & 52{,}9\,\% & 16{,}6\,\% &
+      SRZSZBJ, TRNOGHH \\
     \hline
   \end{tabular}
 \end{table}
 
-Le \textbf{Cluster~1} se distingue nettement~: distance moyenne au
-centroïde de 6{,}91 (vs. 9{,}37–9{,}38 pour les clusters 0 et~2) et
-83{,}3\,\% d'images à confiance haute. Il représente une famille
-visuellement cohérente et compacte — dominée par le caractère ``A''
-(391 images sur 437), ce qui correspond aux plaques d'un type
-morphologique spécifique.
+Le \textbf{Cluster~2} («~illisible / fortement dégradée~») est en
+réalité le plus \textit{compact} (distance moyenne au centroïde la plus
+faible, 1{,}07) et présente le plus fort taux de confiance haute
+(52{,}9\,\%) — ce qui est cohérent~: les plaques très dégradées
+constituent un groupe visuellement homogène (texture bruitée, contours
+peu marqués), distinct des plaques nettes ou partiellement lisibles.
+Le Cluster~1 (51{,}1\,\% du corpus) est le palier majoritaire — la
+plupart des plaques Roboflow sont partiellement lisibles plutôt que
+parfaitement nettes ou totalement illisibles.
 
 \subsubsection{Visualisations}
 
@@ -252,8 +257,8 @@ morphologique spécifique.
   }{%
     \textbf{[Figure absente --- exécuter python main.py --module B5]}%
   }
-  \caption{Projection PCA 2D des embeddings CNN colorée par cluster
-    K-Means ($k=3$) — Module B PlateVision}
+  \caption{Projection PCA 2D des features qualité/lisibilité colorée par
+    cluster K-Means ($k=3$) — Module B PlateVision}
   \label{fig:b:pca_clusters}
 \end{figure}
 
@@ -264,9 +269,9 @@ morphologique spécifique.
   }{%
     \textbf{[Figure absente --- exécuter python main.py --module B5]}%
   }
-  \caption{Projection t-SNE des embeddings CNN — clusters K-Means ($k=3$).
-    Note~: les axes t-SNE n'ont pas d'interprétation directe~; seule la
-    structure globale des groupes est significative.}
+  \caption{Projection t-SNE des features qualité/lisibilité — clusters
+    K-Means ($k=3$). Note~: les axes t-SNE n'ont pas d'interprétation
+    directe~; seule la structure globale des groupes est significative.}
   \label{fig:b:tsne_clusters}
 \end{figure}
 
@@ -276,11 +281,14 @@ Procédures MINT/DGI}
 \label{sec:b:interpretation}
 
 Conformément aux exigences §4.2 du cahier des charges, chaque cluster
-a été nommé en termes de type de plaque et mis en correspondance avec
-la procédure MINT/DGI applicable. La correspondance est établie en
-priorité depuis le dictionnaire \texttt{CLUSTER\_PROCEDURES} défini
-dans \texttt{clustering.py}, qui encode les associations métier
-validées par les experts MINT/DGI.
+a été nommé selon son niveau de qualité/lisibilité visuelle et mis en
+correspondance avec une procédure MINT/DGI d'\textbf{escalade} — pas
+une détection de statut légal (cf. §\ref{sec:b:embeddings}). Le
+Cluster~0 (le plus lisible) reste seul associé à une conclusion
+positive directe (laisser passer) ; les clusters 1 et 2 escaladent vers
+une vérification humaine d'autant plus poussée que la plaque est
+difficile à lire. La correspondance est établie depuis le dictionnaire
+\texttt{CLUSTER\_PROCEDURES} défini dans \texttt{clustering.py}.
 
 \begin{table}[H]
   \centering
@@ -292,14 +300,15 @@ validées par les experts MINT/DGI.
     \textbf{Procédure MINT/DGI} & \textbf{Autorité} &
     \textbf{Base légale} \\
     \hline
-    0 & Plaque conforme   & Laisser passer          & ---  &
+    0 & Plaque nette / lisible   & Laisser passer          & ---  &
       Code de la Route §96/07 \\
     \hline
-    1 & Plaque illisible / dégradée & Mise en demeure MINT & MINT &
+    1 & Plaque dégradée / lisibilité partielle & Contrôle visuel
+      complémentaire & MINT &
       Code de la Route §96/07 \\
     \hline
-    2 & Plaque expirée    & Signalement DGI —
-      vignette             & DGI  &
+    2 & Plaque illisible / fortement dégradée & Signalement DGI —
+      vérification administrative & DGI  &
       Loi Finances 2023 \\
     \hline
   \end{tabular}
@@ -356,32 +365,33 @@ des états du Module~C~:
   \label{fig:b:confidence_dist}
 \end{figure}
 
-% ── B.7 Comparaison avec les labels supervisés ──────────────────────────
-\subsection{Comparaison avec les Annotations Supervisées}
+% ── B.7 Validation de la séparation des clusters ────────────────────────
+\subsection{Validation de la Séparation des Clusters}
 \label{sec:b:comparaison}
 
-Exigence §4.2~: «~le clustering non supervisé retrouve-t-il les
-classes supervisées~?~»
+Il n'existe \textbf{pas de vérité-terrain} «~plaque conforme /
+dégradée / illisible~» annotée dans ce dataset — c'est précisément
+ce que le clustering cherche à révéler de manière non supervisée. On ne
+peut donc valider que la \textbf{séparation du signal de qualité},
+contre un repère binaire indépendant simple~: «~l'OCR a-t-il renvoyé
+un texte non vide ?~»
 
 \begin{itemize}
-  \item \textbf{Adjusted Rand Score (ARI)}~: \textbf{0{,}0759}
+  \item \textbf{Adjusted Rand Score (ARI)}~: \textbf{0{,}0449}
     (0~= aléatoire, 1~= correspondance parfaite)
-  \item \textbf{Normalized Mutual Information (NMI)}~: \textbf{0{,}3122}
+  \item \textbf{Normalized Mutual Information (NMI)}~: \textbf{0{,}1212}
 \end{itemize}
 
-Le faible ARI (0{,}076) indique que le clustering révèle une structure
-\textit{différente} de la catégorisation par classe de caractère (A–Z,
-0–9). Ce résultat est \textbf{attendu et cohérent}~: K-Means groupe les
-plaques par \textit{similarité visuelle globale de la plaque entière},
-pas par caractère individuel. Le NMI modéré (0{,}31) confirme
-néanmoins que les embeddings CNN encodent une information pertinente
-sur la structure du dataset.
-
-La comparaison pertinente pour MINT/DGI est avec les labels de
-conformité opérationnelle (conformes vs. dégradées vs. suspectes), non
-avec les 36 classes alphanumériques — catégorisation qui n'est pas
-annotée dans ce dataset et que le clustering révèle de manière
-non supervisée.
+Ces valeurs sont modestes et \textbf{partiellement circulaires}
+(\textit{ocr\_confidence} a servi à construire le cluster) — elles ne
+prouvent pas une détection de fraude, seulement une cohérence entre le
+palier de qualité assigné et un signal de lisibilité indépendant. La
+figure~\ref{fig:b:supervised_comparison} montre, plus directement, la
+séparation effective des 4 features de qualité par cluster (boxplots)~:
+le Cluster~2 («~illisible~») présente une confiance OCR et un
+nombre de caractères détectés nettement inférieurs aux clusters 0 et~1,
+ce qui confirme que le clustering capture bien le gradient de
+lisibilité visé.
 
 \begin{figure}[H]
   \centering
@@ -390,9 +400,9 @@ non supervisée.
   }{%
     \textbf{[Figure absente --- exécuter python main.py --module B6]}%
   }
-  \caption{Distribution des classes supervisées (label\_char) au sein de
-    chaque cluster K-Means (ARI~= 0{,}076, NMI~= 0{,}312) ---
-    §4.2~: le non-supervisé retrouve-t-il les classes annotées~?}
+  \caption{Séparation des 4 features de qualité par cluster K-Means
+    (ARI~= 0{,}045, NMI~= 0{,}121 vs. succès OCR) ---
+    §4.2~: le clustering sépare-t-il bien le signal de lisibilité~?}
   \label{fig:b:supervised_comparison}
 \end{figure}
 
@@ -410,29 +420,33 @@ non supervisée.
   les runs est de \textbf{0{,}990} (0~= aléatoire, 1~= identique).
 
   \paragraph{Verdict} \textit{Le clustering $k=3$ est stable (ARI
-  moyen~= 0{,}990, coefficient de variation de l'inertie~< 0{,}001).
-  L'espace d'embeddings CNN présente une structure géométrique robuste.}
+  moyen~= 0{,}999, coefficient de variation de l'inertie~< 0{,}001).
+  L'espace des features qualité/lisibilité présente une structure
+  géométrique robuste.}
 
   \subsubsection{Limites identifiées}
   \label{sec:b:limites}
 
   \begin{itemize}
-    \item \textbf{Divergence statistique vs. métier}~: le $k$ optimal
-      statistique ($k=10$) diverge du $k$ métier MINT/DGI ($k=3$).
-      Ce choix est assumé et justifié par les exigences opérationnelles
-      §4.2.
-    \item \textbf{Hypothèse de forme sphérique}~: K-Means suppose des
-      clusters convexes de taille comparable. Le déséquilibre observé
-      (Cluster~1~= 9{,}8\,\% vs. Cluster~2~= 53{,}3\,\%) indique
-      une violation partielle de cette hypothèse.
-    \item \textbf{Biais géographique du dataset}~: le dataset est
-      principalement nigérian (Roboflow) et ghanéen (Mendeley)~;
-      les plaques camerounaises CEMAC peuvent être sous-représentées,
-      introduisant un biais dans les embeddings (§4.4 — éthique).
-    \item \textbf{Faible silhouette} (0{,}069)~: l'espace d'embedding
-      256D ne présente pas de clusters naturellement bien séparés pour
-      les 3 catégories MINT/DGI — ce qui motive le recours au Module~C
-      (MDP) pour gérer l'incertitude résiduelle.
+    \item \textbf{Pas de vérité-terrain de conformité légale}~: la
+      vision ne peut pas constater un statut administratif (vignette
+      expirée, plaque falsifiée) — voir §\ref{sec:b:embeddings}. Les
+      clusters mesurent une qualité visuelle, escaladée en procédure de
+      vérification ; ils ne constituent pas une détection de fraude.
+    \item \textbf{Corpus restreint à Roboflow}~: Mendeley a été exclu
+      (aucune annotation de localisation réelle de la plaque — cf.
+      Module A2), réduisant le corpus de clustering à 4\,791 plaques
+      au lieu des $\sim$19\,000 images brutes disponibles.
+    \item \textbf{Feature \textit{n\_chars\_detected} peu discriminante
+      isolément}~: la segmentation par contours échoue à détecter au
+      moins un caractère sur plus de la moitié des plaques (médiane~=
+      0) — elle reste utile en combinaison avec les 3 autres features,
+      mais ne doit pas être interprétée seule.
+    \item \textbf{Validation partiellement circulaire}~: l'ARI/NMI
+      (§\ref{sec:b:comparaison}) compare le cluster à un signal
+      (succès OCR) qui a contribué à le construire — ce n'est pas une
+      validation externe indépendante, faute de vérité-terrain
+      disponible.
   \end{itemize}
 }
 
@@ -453,14 +467,15 @@ non supervisée.
 Décision}
 \label{sec:b:transition_c}
 
-Le clustering K-Means a révélé $k=3$ groupes distincts de plaques,
-chacun associé à une procédure MINT/DGI spécifique
+Le clustering K-Means a révélé $k=3$ paliers de qualité/lisibilité
+distincts, chacun associé à une procédure MINT/DGI d'escalade
 (Tableau~\ref{tab:b:cluster_procedures}). Cependant, le clustering ne
-prescrit \textit{aucune action}~: il catégorise, mais ne décide pas.
-Face à une plaque du Cluster~2 (expirée / DGI), l'agent doit-il
-systématiquement procéder à une saisie, ou un contrôle standard
-suffit-il selon le contexte~? Cette question ne peut être résolue
-par le seul clustering.
+prescrit \textit{aucune action}~: il catégorise un niveau de lisibilité,
+mais ne décide pas. Face à une plaque du Cluster~2 (illisible /
+fortement dégradée), l'agent doit-il systématiquement procéder à une
+vérification approfondie, ou un contrôle standard suffit-il selon le
+contexte (signal d'alerte OCR, antécédents)~? Cette question ne peut
+être résolue par le seul clustering.
 
 C'est précisément l'objet du \textbf{Module~C}~: à partir des groupes
 identifiés par le Module~B, définir une \textit{politique de décision

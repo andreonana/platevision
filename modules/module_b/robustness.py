@@ -37,7 +37,7 @@ def load_scaled_embeddings(
 ) -> np.ndarray:
     """
     Charge embeddings.npy et applique le scaler kmeans_scaler.pkl.
-    Retourne embeddings_scaled (N, 256).
+    Retourne embeddings_scaled (N, D) — D=4 (features qualité/lisibilité).
     """
     data_dir   = Path(data_dir)
     models_dir = Path(models_dir)
@@ -310,7 +310,7 @@ def interpret_stability(
         verdict = "STABLE"
         texte = (
             f"Le clustering k={k} est stable : ARI moyen={mean_ari:.3f} "
-            f"entre {n_seeds} runs. L'espace d'embeddings CNN "
+            f"entre {n_seeds} runs. L'espace des features qualité/lisibilité "
             f"présente une structure géométrique robuste — les groupes "
             f"de plaques MINT/DGI sont bien séparés."
         )
