@@ -33,7 +33,7 @@ except Exception as _e:
 PROCEDURES_MINT_DGI: list[dict] = [
     {
         "id": 0,
-        "label": "Plaque conforme",
+        "label": "Plaque nette / lisible",
         "procedure": "Laisser passer",
         "autorite": "—",
         "base_legale": "Code de la Route §96/07",
@@ -43,8 +43,8 @@ PROCEDURES_MINT_DGI: list[dict] = [
     },
     {
         "id": 1,
-        "label": "Plaque illisible/dégradée",
-        "procedure": "Mise en demeure MINT",
+        "label": "Plaque dégradée / lisibilité partielle",
+        "procedure": "Contrôle visuel complémentaire",
         "autorite": "MINT",
         "base_legale": "Décret MINT §12/2018",
         "action_mdp": "ALERT_MINT",
@@ -53,8 +53,8 @@ PROCEDURES_MINT_DGI: list[dict] = [
     },
     {
         "id": 2,
-        "label": "Plaque expirée",
-        "procedure": "Signalement DGI — vignette",
+        "label": "Plaque illisible / fortement dégradée",
+        "procedure": "Signalement DGI — vérification administrative",
         "autorite": "DGI",
         "base_legale": "Loi fiscale §44/2020",
         "action_mdp": "ALERT_DGI",
@@ -63,8 +63,8 @@ PROCEDURES_MINT_DGI: list[dict] = [
     },
     {
         "id": 3,
-        "label": "Plaque falsifiée / double immatriculation",
-        "procedure": "Transfert Police Judiciaire",
+        "label": "Cas non discriminé par le clustering qualité (k=3)",
+        "procedure": "Transfert Police Judiciaire (réservé — non déclenché en pratique)",
         "autorite": "PJ",
         "base_legale": "Code Pénal §291",
         "action_mdp": "TRANSFER_PJ",
@@ -98,8 +98,13 @@ def load_metadata(data_dir: Path = Path("data/processed")) -> pd.DataFrame:
         )
 
     meta = pd.read_csv(meta_path)
+    # pandas relit les chaînes vides du CSV comme NaN — on les restitue en "".
+    meta["ocr_text"] = meta["ocr_text"].fillna("")
 
-    required = {"cluster_id", "dist_centroid", "confidence_level", "label_char"}
+    # label_char (identité de caractère) appartenait à l'ancien clustering par
+    # caractère ; le clustering qualité/plaque actuel utilise ocr_text à la place
+    # (voir modules/module_b/plate_quality_features.py).
+    required = {"cluster_id", "dist_centroid", "confidence_level", "ocr_text"}
     missing = required - set(meta.columns)
     if missing:
         raise RuntimeError(
@@ -136,10 +141,12 @@ def compute_cluster_stats(metadata: pd.DataFrame) -> pd.DataFrame:
         n_moyenne = int((m["confidence_level"] == 1).sum())
         n_faible  = int((m["confidence_level"] == 2).sum())
 
+        # Quelques plaques OCR représentatives du cluster (à la place de l'ancien
+        # "top_chars", qui n'a plus de sens pour un clustering au niveau plaque).
         top_chars = (
-            m["label_char"].value_counts()
+            m.loc[m["ocr_text"].fillna("").astype(str).str.len() > 0, "ocr_text"]
             .head(5)
-            .index.tolist()
+            .tolist()
         )
 
         proc = ""
@@ -237,15 +244,15 @@ def assign_cluster_names(
         pct_haute = float(row.get("pct_conf_haute", 0.0))
         dist_mean = float(row.get("dist_mean", 99.0))
 
-        # Heuristique : pct_conf_haute ≥ 70% ET dist ≤ 8 → cluster compact = plaques conformes
+        # Heuristique : pct_conf_haute ≥ 70% ET dist ≤ 8 → cluster compact = plaques nettes/lisibles
         if pct_haute >= 70.0 and dist_mean <= 8.0:
-            proc_info = PROCEDURES_MINT_DGI[0].copy()   # conforme
+            proc_info = PROCEDURES_MINT_DGI[0].copy()   # nette/lisible
         elif pct_haute >= 50.0 and dist_mean <= 9.0:
-            proc_info = PROCEDURES_MINT_DGI[1].copy()   # illisible
+            proc_info = PROCEDURES_MINT_DGI[1].copy()   # dégradée
         elif dist_mean <= 9.5:
-            proc_info = PROCEDURES_MINT_DGI[2].copy()   # expirée
+            proc_info = PROCEDURES_MINT_DGI[2].copy()   # illisible
         else:
-            proc_info = PROCEDURES_MINT_DGI[3].copy()   # falsifiée
+            proc_info = PROCEDURES_MINT_DGI[3].copy()   # non discriminé (k=3)
 
         cluster_mapping[cid] = {**proc_info, **base}
         logger.info("Cluster %d — heuristique : %s (dist=%.2f, conf_haute=%.1f%%)",
@@ -264,8 +271,16 @@ def compare_with_supervised_labels(
     figures_dir: Path,
 ) -> dict:
     """
-    Compare l'assignation des clusters K-Means aux labels supervisés
-    (label_char) via ARI et NMI.
+    Valide la séparation des clusters qualité contre un signal binaire
+    indépendant simple : "OCR a renvoyé un texte non vide" (succès) vs "échec".
+
+    Note méthodologique : il n'existe pas de vérité-terrain "plaque conforme/
+    expirée" dans ce dataset (statut administratif, pas une propriété visuelle —
+    voir docstring de clustering.py). On ne peut donc valider que la séparation
+    des paliers de QUALITÉ visuelle, pas une détection de fraude. ARI/NMI restent
+    partiellement circulaires (ocr_confidence a servi à construire le cluster),
+    mais le succès/échec OCR binaire est une lecture plus simple et plus
+    interprétable de la même information — utile pour la figure jury.
 
     Produit une figure cluster_vs_labels_interp.png.
     Retourne {"ari": float, "nmi": float, "n": int}.
@@ -275,53 +290,40 @@ def compare_with_supervised_labels(
     figures_dir = Path(figures_dir)
     figures_dir.mkdir(parents=True, exist_ok=True)
 
-    y_true = pd.Categorical(metadata["label_char"]).codes
+    ocr_success = (metadata["ocr_text"].fillna("").astype(str).str.len() > 0).astype(int)
+    y_true = ocr_success.values
     y_pred = metadata["cluster_id"].values
 
     ari = float(adjusted_rand_score(y_true, y_pred))
     nmi = float(normalized_mutual_info_score(y_true, y_pred))
 
-    logger.info("ARI (cluster vs label_char) : %.4f", ari)
-    logger.info("NMI (cluster vs label_char) : %.4f", nmi)
+    logger.info("ARI (cluster vs succès OCR) : %.4f", ari)
+    logger.info("NMI (cluster vs succès OCR) : %.4f", nmi)
 
-    # ── Heatmap cluster × top-10 labels ──────────────────────────────────────
-    top_chars = metadata["label_char"].value_counts().head(10).index.tolist()
-    meta_top  = metadata[metadata["label_char"].isin(top_chars)]
+    # ── Boxplots des features de qualité par cluster ─────────────────────────
+    feature_cols = [c for c in ("ocr_confidence", "n_chars_detected", "blur_score", "contrast")
+                     if c in metadata.columns]
+    clusters = sorted(metadata["cluster_id"].unique())
 
-    pivot = (
-        meta_top.groupby(["cluster_id", "label_char"])
-        .size()
-        .unstack(fill_value=0)
-        .reindex(columns=top_chars, fill_value=0)
-    )
+    fig, axes = plt.subplots(1, len(feature_cols), figsize=(4 * len(feature_cols), 4.5), dpi=150)
+    if len(feature_cols) == 1:
+        axes = [axes]
 
-    fig, ax = plt.subplots(figsize=(12, max(4, len(pivot) * 0.8 + 2)), dpi=150)
-    im = ax.imshow(pivot.values, aspect="auto", cmap="YlOrRd")
-    plt.colorbar(im, ax=ax, label="Nombre d'images")
-
-    ax.set_xticks(range(len(top_chars)))
-    ax.set_xticklabels(top_chars, fontsize=9)
-    ax.set_yticks(range(len(pivot)))
-    cluster_ylabels = [
-        f"C{cid} — {cluster_mapping.get(cid, {}).get('label', '?')}"
-        for cid in pivot.index
+    cluster_xlabels = [
+        f"C{cid}\n{cluster_mapping.get(cid, {}).get('label', '?')}"
+        for cid in clusters
     ]
-    ax.set_yticklabels(cluster_ylabels, fontsize=9)
-    ax.set_xlabel("Label caractère (top 10)", fontsize=11)
-    ax.set_ylabel("Cluster K-Means", fontsize=11)
-    ax.set_title(
-        f"Distribution cluster vs label — ARI={ari:.3f} | NMI={nmi:.3f}\n"
-        "Module B — Cohérence K-Means / labels supervisés",
+    for ax, col in zip(axes, feature_cols):
+        data = [metadata.loc[metadata["cluster_id"] == cid, col].values for cid in clusters]
+        ax.boxplot(data, labels=cluster_xlabels, showfliers=False)
+        ax.set_title(col, fontsize=10)
+        ax.tick_params(axis="x", labelsize=8)
+
+    fig.suptitle(
+        f"Séparation des clusters qualité par feature — ARI(succès OCR)={ari:.3f} | NMI={nmi:.3f}\n"
+        "Module B — clustering qualité/lisibilité (pas une détection de fraude)",
         fontsize=11,
     )
-
-    for i in range(len(pivot)):
-        for j in range(len(top_chars)):
-            val = int(pivot.values[i, j])
-            if val > 0:
-                ax.text(j, i, str(val), ha="center", va="center",
-                        fontsize=7, color="black")
-
     plt.tight_layout()
     out_path = figures_dir / "cluster_vs_labels_interp.png"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")

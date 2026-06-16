@@ -1,3 +1,4 @@
+
 """
 Module Interface — Démonstrateur Temps Réel PlateVision
 MINT/DGI Cameroun — UCAC-ICAM / ULC-ICAM
@@ -5,7 +6,11 @@ MINT/DGI Cameroun — UCAC-ICAM / ULC-ICAM
 Pipeline intégré A→B→C en temps réel sur flux caméra :
   1. Module A2 : YOLO détecte la plaque dans le flux vidéo
   2. Module A2 : EasyOCR lit le texte → signal d'alerte CNN
-  3. Module B  : CNN extrait embedding 256D → K-Means → cluster_id + conf_level
+  3. Module B  : features de qualité/lisibilité (netteté, contraste, n_chars,
+                 confiance OCR) → K-Means → cluster_id + conf_level. La vision
+                 ne peut pas constater un statut administratif (plaque expirée/
+                 falsifiée) ; le clustering mesure donc la qualité visuelle, pas
+                 une fraude — voir modules/module_b/plate_quality_features.py.
   4. Module C  : MDP détermine l'état (cluster × conf × alerte) → π*(s) = action optimale
 
 Usage :
@@ -38,8 +43,6 @@ from pathlib import Path
 import cv2
 import joblib
 import numpy as np
-import torch
-import torch.nn.functional as F
 
 from modules.module_a.yolo_ocr_pipeline import deskew_plate_crop, read_plate_ocr
 from data.prepare_datasets import _resize_plate, _segment_chars_from_plate
@@ -63,11 +66,12 @@ _CONF_COLORS = {
 }
 
 # Seuils de distance au centroïde (espace normalisé) calculés sur données d'entraînement
-# Module B kmeans_fit.py : tertiles de dist_centroid par cluster
+# Module B kmeans_fit.py : tertiles de dist_centroid par cluster (clustering qualité/lisibilité,
+# features = blur_score, contrast, n_chars_detected, ocr_confidence — voir plate_quality_features.py)
 _DIST_THRESHOLDS = {
-    0: (8.8249, 9.7917),   # cluster 0 : q33, q66
-    1: (5.9232, 7.1918),   # cluster 1
-    2: (8.6483, 9.6677),   # cluster 2
+    0: (1.2022, 1.6951),   # cluster 0 : q33, q66
+    1: (1.1750, 1.6042),   # cluster 1
+    2: (0.8052, 1.2001),   # cluster 2
 }
 
 # ── Panel layout ──────────────────────────────────────────────────────────────
@@ -121,18 +125,10 @@ class PlateVisionEngine:
         self.ocr = easyocr.Reader(["fr", "en"], verbose=False)
         logger.info("EasyOCR initialisé")
 
-        cnn_path = self.model_dir / "char_cnn.pth"
-        if not cnn_path.exists():
-            raise FileNotFoundError(f"Poids CNN introuvables : {cnn_path}")
-        from modules.module_b.cnn_embeddings import CharEmbeddingCNN
-        self.cnn = CharEmbeddingCNN()
-        checkpoint = torch.load(str(cnn_path), map_location="cpu", weights_only=True)
-        # Le checkpoint peut être un state_dict direct ou un dict avec "model_state_dict"
-        state_dict = checkpoint.get("model_state_dict", checkpoint)
-        self.cnn.load_state_dict(state_dict)
-        self.cnn.eval()
-        logger.info("CNN CharEmbedding chargé")
-
+        # Plus de CNN ici : le clustering Module B porte sur des features de
+        # qualité/lisibilité calculées directement (blur/contraste/n_chars/ocr_conf),
+        # pas sur un embedding appris — voir plate_quality_features.py et
+        # classify_plate() ci-dessous.
         km_path  = self.model_dir / "kmeans_model.pkl"
         sc_path  = self.model_dir / "kmeans_scaler.pkl"
         if not km_path.exists() or not sc_path.exists():
@@ -175,26 +171,6 @@ class PlateVisionEngine:
 
     # ── Inférence pipeline A→B→C ─────────────────────────────────────────────
 
-    def embed_char(self, char_img_28: np.ndarray) -> np.ndarray:
-        """
-        Module B : extrait l'embedding 256D d'un caractère 28×28 déjà segmenté
-        (même unité que l'entraînement K-Means — voir _segment_chars_from_plate).
-        """
-        norm   = char_img_28.astype(np.float32) / 255.0
-        tensor = torch.tensor(norm[np.newaxis, np.newaxis]).float()  # (1,1,28,28)
-
-        captured: list[np.ndarray] = []
-
-        def _hook(module, inp, out):
-            captured.append(F.relu(out).detach().cpu().numpy())
-
-        handle = self.cnn.fc1.register_forward_hook(_hook)
-        with torch.no_grad():
-            self.cnn(tensor)
-        handle.remove()
-
-        return captured[0][0]  # (256,)
-
     def _dist_to_conf_level(self, dist: float, cluster_id: int) -> int:
         """Tertiles de distance → niveau de confiance 0=haute / 1=moy / 2=faible."""
         q33, q66 = _DIST_THRESHOLDS.get(cluster_id, (9.0, 10.5))
@@ -218,36 +194,24 @@ class PlateVisionEngine:
         ocr_conf = ocr_res["confidence"]
         alerte_cnn = 1 if ocr_conf < self.ocr_alert_threshold else 0
 
-        # ── B : segmentation caractères → CNN → K-Means → cluster + conf_level ──
-        # Le K-Means a été entraîné sur des CARACTÈRES individuels 28×28 (cf. Module B,
-        # segment_characters() dans data/prepare_datasets.py), pas sur la plaque entière.
-        # On reproduit donc la même segmentation ici, puis on agrège le vote des
-        # caractères détectés — sinon l'embedding d'une plaque entière écrasée en 28×28
-        # est hors distribution et retombe quasi toujours dans le même cluster majoritaire.
+        # ── B : features qualité/lisibilité → K-Means → cluster + conf_level ────
+        # La vision ne peut pas constater un statut administratif (expirée/falsifiée —
+        # voir modules/module_b/clustering.py) ; le clustering porte donc sur des
+        # signaux de QUALITÉ visuelle directement mesurables, comme à l'entraînement
+        # (modules/module_b/plate_quality_features.py) : netteté, contraste, nombre
+        # de caractères segmentables, confiance OCR.
         plate_for_seg = _resize_plate(plate_deskewed)
-        chars = _segment_chars_from_plate(plate_for_seg)
+        gray          = cv2.cvtColor(plate_for_seg, cv2.COLOR_BGR2GRAY)
+        blur_score    = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+        contrast      = float(gray.std())
+        n_chars       = len(_segment_chars_from_plate(plate_for_seg))
 
-        if chars:
-            cluster_ids, dists = [], []
-            for (_x, _y, _w, _h, char_img_28) in chars:
-                embedding  = self.embed_char(char_img_28)
-                emb_scaled = self.scaler.transform(embedding.reshape(1, -1))
-                cid        = int(self.kmeans.predict(emb_scaled)[0])
-                centroid   = self.kmeans.cluster_centers_[cid]
-                cluster_ids.append(cid)
-                dists.append(float(np.linalg.norm(emb_scaled[0] - centroid)))
-
-            # Cluster majoritaire parmi les caractères détectés sur cette plaque
-            cluster_id = int(np.bincount(cluster_ids).argmax())
-            dist       = float(np.mean([d for d, c in zip(dists, cluster_ids) if c == cluster_id]))
-            conf_level = self._dist_to_conf_level(dist, cluster_id)
-        else:
-            # Aucun caractère segmentable → plaque illisible : confiance faible + alerte,
-            # on ne peut pas prétendre à une lecture fiable du cluster.
-            cluster_id = 0
-            dist       = 0.0
-            conf_level = 2
-            alerte_cnn = 1
+        features   = np.array([[blur_score, contrast, float(n_chars), ocr_conf]], dtype=np.float32)
+        emb_scaled = self.scaler.transform(features)
+        cluster_id = int(self.kmeans.predict(emb_scaled)[0])
+        centroid   = self.kmeans.cluster_centers_[cluster_id]
+        dist       = float(np.linalg.norm(emb_scaled[0] - centroid))
+        conf_level = self._dist_to_conf_level(dist, cluster_id)
 
         # ── C : MDP état → π* ────────────────────────────────────────────────
         key   = (cluster_id, conf_level, alerte_cnn)

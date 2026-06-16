@@ -1,15 +1,18 @@
 """
-Module B — Étape 3 : K-Means sur embeddings CNN + cohérence procédures MINT/DGI
+Module B — Étape 3 : K-Means sur features de qualité/lisibilité + procédures MINT/DGI
 PlateVision / MINT-DGI Cameroun — §4.2 cahier des charges
 
-Contexte opérationnel §1.2 :
-  Les véhicules en infraction ne relèvent pas tous de la même procédure :
-  - Plaque expirée      → DGI (vignette non payée)
-  - Plaque falsifiée    → Police Judiciaire
-  - Plaque illisible    → mise en demeure MINT
-  - Plaque conforme     → laisser passer
-  Le clustering révèle ces sous-groupes de manière non supervisée sur les
-  embeddings 256D appris par le CNN (couche FC1 avant-dernière).
+Portée et limite assumées (révision suite à audit) :
+  La vision par ordinateur ne peut pas, à elle seule, constater un statut
+  ADMINISTRATIF (vignette expirée, plaque falsifiée/double immatriculation) —
+  ce sont des faits qui dépendent d'un registre DGI/MINT, pas de l'image.
+  Ce que le clustering PEUT honnêtement mesurer, c'est la QUALITÉ/LISIBILITÉ
+  visuelle de la plaque (netteté, contraste, complétude de la segmentation,
+  confiance OCR — voir modules/module_b/plate_quality_features.py).
+  Le clustering produit donc des paliers de qualité, escaladés en procédure
+  de vérification d'autant plus poussée que la plaque est peu lisible — pas
+  une détection de fraude. Seul le palier "lisible/conforme" est une
+  conclusion positive directe (plaque clairement identifiable).
 """
 
 import logging
@@ -31,28 +34,31 @@ from tqdm import tqdm
 logger = logging.getLogger(__name__)
 
 # ── Constantes métier MINT/DGI (§1.2 + §4.2) ─────────────────────────────────
+# cluster_id ordonné par qualité décroissante (0 = meilleure lisibilité) — voir
+# le remappage par score composite (ocr_confidence + n_chars_detected) effectué
+# après l'entraînement K-Means dans modules/module_b/kmeans_fit.py.
 CLUSTER_PROCEDURES: dict[int, dict] = {
     0: {
-        "label":       "Plaque conforme",
+        "label":       "Plaque nette / lisible",
         "procedure":   "Laisser passer",
         "autorite":    "—",
         "base_legale": "Code de la Route §96/07",
     },
     1: {
-        "label":       "Plaque illisible/dégradée",
-        "procedure":   "Mise en demeure MINT",
+        "label":       "Plaque dégradée / lisibilité partielle",
+        "procedure":   "Contrôle visuel complémentaire",
         "autorite":    "MINT",
         "base_legale": "Code de la Route §96/07",
     },
     2: {
-        "label":       "Plaque expirée",
-        "procedure":   "Signalement DGI — vignette",
+        "label":       "Plaque illisible / fortement dégradée",
+        "procedure":   "Signalement DGI — vérification administrative",
         "autorite":    "DGI",
         "base_legale": "Loi de Finances DGI 2023",
     },
     3: {
-        "label":       "Plaque falsifiée / double immatriculation",
-        "procedure":   "Transfert Police Judiciaire",
+        "label":       "Cas non discriminé par le clustering qualité (k=3)",
+        "procedure":   "Transfert Police Judiciaire (réservé — non déclenché en pratique)",
         "autorite":    "PJ",
         "base_legale": "Loi n°2010/012 cybersécurité",
     },

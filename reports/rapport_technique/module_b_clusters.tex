@@ -5,7 +5,7 @@
 
 L'algorithme K-Means appliqué aux embeddings 256D du CNN \texttt{CharEmbeddingCNN}
 (couche \texttt{fc1}, §\ref{sec:module_b_cnn}) a produit $k=3$ clusters
-sur un corpus de 4454 images de caractères.
+sur un corpus de 4791 images de caractères.
 Chaque cluster est ensuite nommé selon les procédures opérationnelles MINT/DGI
 Cameroun détaillées en §\ref{sec:procedures_mint_dgi}.
 
@@ -20,11 +20,11 @@ Cameroun détaillées en §\ref{sec:procedures_mint_dgi}.
         \textbf{Dist.} & \textbf{Conf.H\%} & \textbf{Top chars} &
         \textbf{Autorité} & \textbf{Action MDP} \\
         \hline
-        0 & Plaque conforme & 1644 & 36.9\% & 9.38 & 24.9\% & K, H, R & — & \texttt{PASS} \\
+        0 & Plaque nette / lisible & 810 & 16.9\% & 1.47 & 22.1\% & SHK462HB, GGE950FV, KSF897HG & — & \texttt{PASS} \\
         \hline
-        1 & Plaque illisible/dégradée & 437 & 9.8\% & 6.91 & 83.3\% & A, 9, 4 & MINT & \texttt{ALERT_MINT} \\
+        1 & Plaque dégradée / lisibilité partielle & 2449 & 51.1\% & 1.43 & 24.2\% & PE13460, 8EEALLL, VA888J8A & MINT & \texttt{ALERT_MINT} \\
         \hline
-        2 & Plaque expirée & 2373 & 53.3\% & 9.37 & 29.4\% & B, C, 8 & DGI & \texttt{ALERT_DGI} \\
+        2 & Plaque illisible / fortement dégradée & 1532 & 32.0\% & 1.07 & 52.9\% & 2, SRZSZBJ, TRNOGHH & DGI & \texttt{ALERT_DGI} \\
         \hline
     \end{tabular}
 \end{table}
@@ -34,9 +34,9 @@ Cameroun détaillées en §\ref{sec:procedures_mint_dgi}.
 La comparaison entre les clusters non supervisés et les labels de caractères
 supervisés donne :
 \begin{itemize}
-    \item \textbf{ARI} (Adjusted Rand Index) : $0.0759$ —
+    \item \textbf{ARI} (Adjusted Rand Index) : $0.0449$ —
     mesure la concordance entre partitions (0 = aléatoire, 1 = parfait).
-    \item \textbf{NMI} (Normalized Mutual Information) : $0.3122$ —
+    \item \textbf{NMI} (Normalized Mutual Information) : $0.1212$ —
     mesure l'information partagée entre les deux partitions.
 \end{itemize}
 
@@ -49,7 +49,7 @@ fonctionnels supplémentaires liés aux procédures MINT/DGI
     \centering
     \includegraphics[width=0.85\textwidth]{figures/cluster_vs_labels_interp.png}
     \caption{Distribution des clusters K-Means par label de caractère —
-    Module B (ARI=0.076, NMI=0.312)}
+    Module B (ARI=0.045, NMI=0.121)}
     \label{fig:cluster_vs_labels_interp}
 \end{figure}
 
