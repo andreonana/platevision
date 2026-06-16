@@ -65,11 +65,14 @@ def prepare_yaml(yaml_path: Path = YAML_PATH) -> Path:
             logger.info("YAML mis à jour avec chemin absolu.")
     else:
         yaml_path.parent.mkdir(parents=True, exist_ok=True)
+        # Pointe directement sur le dataset Roboflow brut (scènes complètes + bbox
+        # réelles), pas sur data/processed/images/* — voir prepare_yaml docstring
+        # et le commentaire en tête de models/configs/yolov8_platevision.yaml.
         cfg = {
-            "path":  str(Path.cwd() / "data/raw"),
-            "train": "images/train",
-            "val":   "images/val",
-            "test":  "images/test",
+            "path":  str(Path.cwd() / "data/raw/roboflow/Nigerian License Plate.v1i.yolov5pytorch"),
+            "train": "train/images",
+            "val":   "valid/images",
+            "test":  "test/images",
             "nc":    1,
             "names": {0: "plaque_immatriculation"},
         }

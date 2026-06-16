@@ -1,9 +1,14 @@
 # PlateVision — Configuration YOLOv8
-# Généré automatiquement par data/prepare_datasets.py
-path: /home/ems/Documents/projet IA/platevision/data/processed
-train: images/train
-val: images/val
-test: images/test
+# Pointe directement sur le dataset Roboflow brut (scènes complètes + bbox réelles
+# annotées), pas sur data/processed/images/* (Phases 3→8 de data/prepare_datasets.py),
+# qui pré-recadre chaque plaque avant de lui coller un label "image entière = plaque" —
+# le détecteur n'apprenait alors jamais à localiser une petite plaque dans une scène,
+# pour aucune source (Roboflow comme Mendeley). Voir aussi
+# yolov8_platevision_roboflow.yaml (config identique, conservée pour traçabilité).
+path: /home/ems/Documents/projet IA/platevision/data/raw/roboflow/Nigerian License Plate.v1i.yolov5pytorch
+train: train/images
+val: valid/images
+test: test/images
 
 nc: 1
 names:
